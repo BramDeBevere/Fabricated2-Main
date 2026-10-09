@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabricated 2.0 · Set up this device</title>
+<!--
+  ONE SITE — device setup
+  ───────────────────────
+  Every screen / tablet opens this page (served by the hub, Projector 2).
+  You choose WHAT this device is and type the ROOM CODE to connect. There is no
+  separate or cloud server — the room lives on the hub device and stops when it
+  closes.
+
+    Tablet            a visitor's touch device; drives its own rabbit-hole walk
+    Projector 1       the camera stage; people stand in frame and it votes with
+                      their bodies (runs person detection in the browser)
+    Projector 2 · Hub the main screen; shows the collective progress + the code
+
+  The room code comes from ?code=, localStorage, or the hub's /config endpoint
+  (auto-filled when this page is served by the hub).
+-->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script src="p2p.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #0a0a0f; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .card {
+    width: min(560px, 100%); background: #101017; border: 1px solid #23232f;
+    border-radius: 10px; padding: clamp(24px, 4vw, 40px);
+    box-shadow: 0 30px 80px -40px rgba(0,0,0,.9);
+  }
+  .eyebrow { font-size: .62rem; letter-spacing: .5em; text-transform: uppercase; color: #F4BE00; }
+  h1 { font-size: clamp(1.6rem, 5vw, 2.3rem); font-weight: 700; letter-spacing: .06em;
+       text-transform: uppercase; margin: 10px 0 4px; }
+  .sub { font-size: .85rem; color: rgba(255,255,255,.5); margin-bottom: 22px; }
+  .flag { display: flex; height: 4px; border-radius: 2px; overflow: hidden; margin-bottom: 24px; }
+  .flag span { flex: 1; } .flag .y { background:#F4BE00; } .flag .b { background:#003F87; } .flag .r { background:#CE1126; }
+
+  .label { font-size: .6rem; letter-spacing: .28em; text-transform: uppercase; color: rgba(255,255,255,.4); margin: 20px 0 10px; }
+
+  .roles { display: grid; gap: 10px; }
+  .role {
+    display: flex; align-items: center; gap: 14px; text-align: left; cursor: pointer;
+    background: rgba(255,255,255,.03); border: 1px solid #23232f; border-radius: 8px;
+    padding: 14px 16px; color: #fff; font-family: inherit; transition: all .18s;
+  }
+  .role:hover { border-color: #3a3a4a; background: rgba(255,255,255,.05); }
+  .role.sel { border-color: #F4BE00; background: rgba(244,190,0,.08); }
+  .role .ico { font-size: 1.6rem; width: 40px; text-align: center; }
+  .role .txt b { display: block; font-size: 1rem; letter-spacing: .04em; }
+  .role .txt small { color: rgba(255,255,255,.45); font-size: .72rem; }
+  .role .tick { margin-left: auto; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #3a3a4a; flex: 0 0 auto; }
+  .role.sel .tick { background: #F4BE00; border-color: #F4BE00; box-shadow: inset 0 0 0 3px #101017; }
+
+  input {
+    width: 100%; padding: 15px 16px; font-family: inherit; font-size: 1.15rem;
+    letter-spacing: .12em; color: #fff; background: rgba(255,255,255,.04);
+    border: 1px solid #2a2a37; border-radius: 8px; outline: none; text-transform: uppercase;
+  }
+  input::placeholder { color: rgba(255,255,255,.2); letter-spacing: .06em; }
+  input:focus { border-color: #F4BE00; background: rgba(244,190,0,.05); }
+  #code { text-align: center; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .adv { margin-top: 6px; }
+  .adv summary { font-size: .62rem; letter-spacing: .22em; text-transform: uppercase; color: rgba(255,255,255,.35); cursor: pointer; }
+
+  .go {
+    width: 100%; margin-top: 22px; padding: 17px; font-family: inherit; font-size: .82rem;
+    letter-spacing: .26em; text-transform: uppercase; color: #111; background: #F4BE00;
+    border: none; border-radius: 8px; cursor: pointer; transition: transform .1s, filter .2s;
+  }
+  .go:not(:disabled):hover { filter: brightness(1.08); }
+  .go:not(:disabled):active { transform: translateY(1px); }
+  .go:disabled { background: #2a2a37; color: rgba(255,255,255,.35); cursor: default; }
+
+  .err { color: #ff6b6b; font-size: .78rem; text-align: center; min-height: 1.2em; margin-top: 12px; }
+  .foot { margin-top: 18px; font-size: .68rem; line-height: 1.6; color: rgba(255,255,255,.32); text-align: center; }
+  .foot b { color: rgba(255,255,255,.5); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="eyebrow">Fabricated 2.0</div>
+  <h1>Set up this device</h1>
+  <div class="sub">Choose what this screen is, then type the room code to connect.</div>
+  <div class="flag"><span class="y"></span><span class="b"></span><span class="r"></span></div>
+
+  <div class="label">This device is…</div>
+  <div class="roles" id="roles">
+    <button class="role" data-role="tablet">
+      <span class="ico">📱</span>
+      <span class="txt"><b>Tablet</b><small>A visitor's touch device — drives its own rabbit-hole walk.</small></span>
+      <span class="tick"></span>
+    </button>
+    <button class="role" data-role="p1">
+      <span class="ico">📷</span>
+      <span class="txt"><b>Projector 1</b><small>The camera stage — people stand in frame and it votes with their bodies.</small></span>
+      <span class="tick"></span>
+    </button>
+    <button class="role" data-role="hub">
+      <span class="ico">🖥️</span>
+      <span class="txt"><b>Projector 2 · Hub</b><small>The main screen — opens the room, shows the code + live progress.</small></span>
+      <span class="tick"></span>
+    </button>
+  </div>
+
+  <div class="label">Room code</div>
+  <input id="code" type="text" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false"
+         placeholder="VENZ-XXXX">
+
+  <div class="sub" style="margin-top:14px">The Hub screen shows this code — type the same one here to join.</div>
+
+  <button class="go" id="go" disabled>Connect this device</button>
+  <div class="err" id="err"></div>
+  <div class="foot">
+    One screen <b>opens</b> the room (Projector 2 · Hub); the rest <b>join</b> by
+    typing that code. It's direct device‑to‑device (WebRTC) — no server. Every
+    device just needs an internet connection (the same Wi‑Fi works too).
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let role = null;
+
+// Pre-fill the room code from a previous visit so re-opening is one tap.
+(function () {
+  const stored = localStorage.getItem('fabricated_room_code');
+  if (stored) $('code').value = stored.toUpperCase();
+})();
+
+document.querySelectorAll('.role').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.role').forEach(b => b.classList.remove('sel'));
+    btn.classList.add('sel');
+    role = btn.dataset.role;
+    $('err').textContent = '';
+    refresh();
+  });
+});
+
+$('code').addEventListener('input', refresh);
+
+function refresh() {
+  $('go').disabled = !(role && $('code').value.trim().length >= 3);
+}
+
+$('go').addEventListener('click', () => {
+  const code = $('code').value.trim().toUpperCase();
+  if (!code) { $('err').textContent = 'Enter the room code.'; return; }
+
+  P2P.rememberCode(code);
+  try { localStorage.setItem('fabricated_role', role); } catch (e) {}
+
+  const pages = { tablet: 'tablet.html', p1: 'p1.html', hub: 'collective.html' };
+  let url = pages[role] + '?code=' + encodeURIComponent(code);
+  if (role === 'hub') url += '&hub=1';
+  location.href = url;
+});
+
+$('code').addEventListener('keydown', e => { if (e.key === 'Enter' && role) $('go').click(); });
+</script>
+</body>
+</html>

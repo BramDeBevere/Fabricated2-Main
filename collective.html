@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabricated 2.0 · Collective</title>
+<!--
+  COLLECTIVE VIEW — shared installation session
+  ─────────────────────────────────────────────
+  A separate, full-screen "collective progress" board (meant for its own
+  projector / big display, i.e. a Projector 2 screen alongside
+  projector2.html). Everything shown here is LIVE data from the /session
+  room in api_server.py — the exact snapshots the tablets push:
+
+    • Active visitors   — every connected tablet, with status
+    • Shared themes     — how many visitors are currently in / finished in
+                          each topic (Nature · Culture · Politics · History)
+    • Chosen rabbit holes — finished journeys, with the reward title/text
+    • Journey progress  — each visitor's live round + breadcrumb path
+
+  Data notes (all computed from the real snapshot, nothing invented):
+    - a journey is exactly 7 decisions: 3 topic-bracket rounds, then the
+      4-deep topic tree (every tree in selection_shared.js is 4 decision
+      levels deep). Progress % = decisions made / 7, 100% when finished.
+    - "theme" of a visitor = path[0] once chosen, i.e. the topic bracket
+      winner. Finished journeys are counted in the same theme tally.
+
+  It joins the /session WebSocket as kind:"projector" (display-only — it
+  never advances anyone's walk). It reuses selection_shared.js only for
+  REWARDS text (no duplicated content). Projector 1 and the YOLO camera
+  pipeline are untouched; live camera people-in-frame are shown in the HUD.
+
+  URL params:
+    ?api=host:8000  override the api_server host:port (defaults to the
+                    current hostname on port 8000)
+-->
+<script src="selection_shared.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script src="p2p.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #e9e3d5; --bg-2: #dfd8c6; --panel: #f4f1e9; --panel-2: #fbf9f3;
+    --ink: #1b1812; --ink-soft: #5c5648; --ink-faint: #948b78;
+    --line: #cdc5b2; --line-2: #dad3c2;
+    --nature: #2c8a4d; --culture: #bb770d; --politics: #c0392e; --history: #2a6ea6;
+    --serif: Georgia, 'Times New Roman', serif;
+    --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: var(--bg); color: var(--ink);
+               font-family: var(--sans); }
+
+  /* soft surface depth so the projection reads as a warm gallery wall */
+  body::before { content: ''; position: fixed; inset: 0; pointer-events: none;
+                 background: radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.5), rgba(255,255,255,0) 60%),
+                             radial-gradient(140% 120% at 50% 130%, rgba(70,55,20,.06), rgba(70,55,20,0) 55%); }
+
+  #app { --gear: clamp(38px, 4.5vw, 52px);
+         --top: calc(clamp(12px, 1.5vw, 20px) + var(--gear) + 12px); /* strip reserved for the gear */
+         position: fixed; inset: 0; display: grid;
+         grid-template-columns: minmax(0, 44%) minmax(0, 56%);
+         grid-template-rows: auto 1fr; gap: clamp(10px, 1.2vw, 20px);
+         padding: var(--top) clamp(18px, 2vw, 30px) clamp(14px, 1.6vw, 22px); }
+
+  /* Settings gear — collapses the operational HUD (brand · status · room code ·
+     active count) into a single corner button for a clean, full-bleed board. */
+  #settingsBtn { position: fixed; top: clamp(12px, 1.5vw, 20px); right: clamp(18px, 2vw, 30px);
+                 z-index: 60; width: var(--gear); height: var(--gear); border-radius: 50%;
+                 border: 1px solid var(--line); background: var(--panel); color: var(--ink-soft);
+                 display: flex; align-items: center; justify-content: center; cursor: pointer;
+                 box-shadow: 0 8px 22px -14px rgba(0,0,0,.65);
+                 transition: transform .15s, background .2s, color .2s, border-color .2s; }
+  #settingsBtn:hover { background: #221912; color: var(--ink); transform: scale(1.06); }
+  #settingsBtn.on    { border-color: var(--gold); color: var(--gold); }
+  #settingsBtn svg   { width: 55%; height: 55%; }
+  /* The top strip (--top on #app) is always reserved for the floating gear, so
+     the gear NEVER overlaps the HUD. HUD hidden → the board just fills that space;
+     HUD shown → the bar (room code · status · available · active tablets) sits
+     fully BELOW the gear, so "Available tablets" is never behind the settings button. */
+  #app.hud-off #hud  { display: none; }
+
+  /* HUD */
+  #hud { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+  .brand { display: flex; align-items: baseline; gap: clamp(12px, 1.8vw, 28px); }
+  .brand .kicker { font-size: clamp(.6rem, .95vw, .95rem); letter-spacing: .44em; text-transform: uppercase; color: var(--ink-faint); }
+  .brand .live { display: inline-flex; align-items: center; gap: 9px; font-size: clamp(.6rem, .9vw, .9rem);
+                 letter-spacing: .3em; text-transform: uppercase; color: var(--ink-soft); }
+  .brand .live .dot { width: clamp(8px, .85vw, 11px); height: clamp(8px, .85vw, 11px); border-radius: 50%;
+                      background: var(--politics); position: relative; display: inline-block; }
+  .brand .live .dot.on { background: var(--nature); }
+  .brand .live .dot.on::after { content: ''; position: absolute; inset: -5px; border-radius: 50%;
+                                border: 2px solid var(--nature); animation: livePing 2s ease-out infinite; }
+  .hud-right { display: flex; align-items: center; gap: clamp(16px, 2.2vw, 34px); }
+  .hud-right .code { font-size: clamp(.7rem, 1.1vw, 1rem); letter-spacing: .22em; text-transform: uppercase;
+                     color: #b78700; border: 1px solid var(--line); border-radius: 4px;
+                     padding: 6px 12px; background: var(--panel); }
+  .hud-right .cam { font-size: clamp(.62rem, 1vw, 1rem); letter-spacing: .24em; text-transform: uppercase;
+                    color: var(--ink-faint); border-right: 1px solid var(--line); padding-right: clamp(14px, 1.8vw, 26px); }
+  .hud-right .big { display: flex; align-items: baseline; gap: 10px; }
+  .hud-right .big b { font-family: var(--serif); font-size: clamp(2.2rem, 5vw, 5rem); font-weight: 700; line-height: .85; }
+  .hud-right .big .lbl { font-size: clamp(.6rem, .95vw, .95rem); letter-spacing: .26em; text-transform: uppercase;
+                         color: var(--ink-soft); line-height: 1.4; }
+  .hud-right .avail-dots { display: flex; align-items: center; gap: clamp(6px, .7vw, 10px); }
+  .hud-right .avail-dots .dot2 { width: clamp(12px, 1.2vw, 17px); height: clamp(12px, 1.2vw, 17px);
+                                 border-radius: 50%; border: 1px solid var(--line); background: transparent;
+                                 transition: background .3s, border-color .3s; }
+  .hud-right .avail-dots .dot2.free { background: var(--nature); border-color: var(--nature); }
+  .hud-right .avail-dots .dot2.busy { background: var(--politics); border-color: var(--politics); }
+
+  /* Panels */
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+           padding: clamp(14px, 1.7vw, 26px); display: flex; flex-direction: column; gap: clamp(12px, 1.5vw, 22px);
+           overflow: hidden; box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 12px 34px -22px rgba(70,50,10,.5); }
+  .panel h2 { display: flex; justify-content: space-between; align-items: baseline;
+              font-size: clamp(.66rem, 1vw, 1.05rem); font-weight: 600; letter-spacing: .34em; text-transform: uppercase;
+              color: var(--ink-soft); padding-bottom: clamp(8px, 1vw, 14px); border-bottom: 1px solid var(--line); }
+  .panel h2 .n { font-family: var(--serif); font-size: clamp(1.3rem, 2.3vw, 2.3rem); font-weight: 700; color: var(--ink); letter-spacing: 0; }
+
+  .col-left { grid-row: 2; display: flex; flex-direction: column; gap: clamp(10px, 1.2vw, 20px); min-height: 0; }
+  #themes { flex: 0 0 auto; }
+  #chosen { flex: 1 1 0; min-height: 0; }
+  #journeys { grid-row: 2; }
+  #app.is-empty .col-left, #app.is-empty #journeys { display: none; }
+
+  /* Shared themes */
+  .theme { display: grid; grid-template-columns: clamp(84px, 11vw, 150px) 1fr clamp(34px, 4vw, 54px); align-items: center;
+           gap: clamp(12px, 1.6vw, 22px); padding: clamp(9px, 1.1vw, 15px) 0; }
+  .theme + .theme { border-top: 1px solid var(--line-2); }
+  .theme .name { font-size: clamp(1rem, 1.9vw, 1.9rem); font-weight: 600; letter-spacing: .04em; }
+  .theme.zero .name { color: var(--ink-faint); font-weight: 400; }
+  .theme .track { height: clamp(10px, 1.1vw, 16px); background: var(--bg-2); border-radius: 2px; overflow: hidden; }
+  .theme .track i { display: block; height: 100%; width: 0%; border-radius: 2px; transition: width .7s cubic-bezier(.2,.7,.3,1); }
+  .theme .val { font-family: var(--serif); font-size: clamp(1.2rem, 2.3vw, 2.3rem); font-weight: 700; text-align: right; line-height: 1; }
+
+  /* Chosen rabbit holes */
+  #chosen-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: clamp(8px, 1vw, 14px); padding-right: 4px; }
+  .hole { border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2);
+          padding: clamp(10px, 1.3vw, 18px) clamp(12px, 1.5vw, 20px); }
+  .hole .row1 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .hole .topic { font-size: clamp(.6rem, .9vw, .9rem); letter-spacing: .3em; text-transform: uppercase; color: var(--ink-faint); }
+  .hole .who { font-size: clamp(.6rem, .9vw, .9rem); letter-spacing: .2em; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+  .hole .pick { font-family: var(--serif); font-size: clamp(1.3rem, 2.6vw, 2.6rem); font-weight: 700; margin-top: clamp(2px, .3vw, 6px); line-height: 1.05; }
+  .hole .txt { font-size: clamp(.72rem, 1vw, 1.05rem); line-height: 1.5; color: var(--ink-soft); margin-top: clamp(4px, .5vw, 8px);
+               display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hole.top { border-color: var(--culture); box-shadow: inset 3px 0 0 var(--culture); }
+  .none { font-size: clamp(.9rem, 1.3vw, 1.3rem); color: var(--ink-faint); }
+
+  /* Journey progress */
+  #journeys-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: clamp(8px, 1vw, 14px); padding-right: 4px; }
+  .journey { border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2);
+             padding: clamp(10px, 1.3vw, 18px) clamp(12px, 1.5vw, 20px); display: grid;
+             grid-template-columns: clamp(92px, 12vw, 150px) 1fr; grid-template-rows: auto auto;
+             gap: clamp(4px, .6vw, 10px) clamp(14px, 1.8vw, 26px); align-items: center; position: relative; overflow: hidden; }
+  .journey .who { grid-row: 1 / 3; font-size: clamp(.85rem, 1.4vw, 1.4rem); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+  .journey .status { grid-row: 1 / 3; font-size: clamp(.62rem, .95vw, .95rem); letter-spacing: .22em; text-transform: uppercase;
+                     color: var(--ink-soft); text-align: right; align-self: center; }
+  .journey .bar { height: clamp(6px, .75vw, 10px); background: var(--bg-2); border-radius: 3px; overflow: hidden; }
+  .journey .bar i { display: block; height: 100%; background: var(--ink); width: 0%; transition: width .7s cubic-bezier(.2,.7,.3,1); }
+  .journey .path { font-size: clamp(.74rem, 1.05vw, 1.15rem); letter-spacing: .05em; color: var(--ink-soft); line-height: 1.5; }
+  .journey .path b { color: var(--ink); font-weight: 700; }
+  .journey .wait { font-size: clamp(.85rem, 1.2vw, 1.2rem); color: var(--ink-faint); }
+  .journey.done .bar i { background: var(--nature); }
+  .journey.done .who, .journey.done .status { color: var(--nature); }
+
+  /* Activity animations */
+  @keyframes livePing { 0% { opacity: .7; transform: scale(1); } 70%, 100% { opacity: 0; transform: scale(2.8); } }
+  @keyframes rowIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  @keyframes advSweep { 0% { background: rgba(255, 214, 120, .55); } 100% { background: var(--panel-2); } }
+  @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
+  @keyframes holeIn { from { opacity: 0; transform: translateY(-12px); box-shadow: 0 0 0 rgba(0,0,0,0); }
+                      25% { box-shadow: 0 10px 26px -10px rgba(70,45,10,.4); }
+                      to { opacity: 1; transform: none; box-shadow: 0 0 0 rgba(0,0,0,0); } }
+  @keyframes pulseFire { 0% { transform: scaleX(0); opacity: .9; } 55% { transform: scaleX(1); opacity: .9; } 100% { transform: scaleX(1); opacity: 0; } }
+  @keyframes ring { 0% { transform: scale(.5); opacity: .5; } 100% { transform: scale(2.4); opacity: 0; } }
+
+  .journey.anim-in { animation: rowIn .5s cubic-bezier(.2,.7,.3,1) both; }
+  .journey.anim-adv { animation: advSweep 1.1s ease-out; }
+  .hole.anim-in { animation: holeIn .55s cubic-bezier(.2,.7,.3,1) both; }
+  .bump { animation: bump .5s ease; }
+
+  /* Collective activity sweep (fires when the group moves) */
+  #pulse { position: fixed; top: 0; left: 0; right: 0; height: 3px; background: var(--ink);
+           transform: scaleX(0); transform-origin: left; z-index: 60; opacity: 0; }
+  #pulse.fire { animation: pulseFire 1s ease-out; }
+
+  /* Empty state — no tablets connected */
+  #empty { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center;
+           gap: clamp(16px, 2.4vw, 30px); text-align: center; z-index: 30; }
+  #empty.on { display: flex; }
+  #empty .ring-wrap { position: relative; width: clamp(120px, 15vw, 240px); height: clamp(120px, 15vw, 240px);
+                      display: flex; align-items: center; justify-content: center; }
+  #empty .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--ink); animation: ring 2.4s ease-out infinite; }
+  #empty .ring:nth-child(2) { animation-delay: .8s; }
+  #empty .ring:nth-child(3) { animation-delay: 1.6s; }
+  #empty .core { width: clamp(44px, 6vw, 84px); height: clamp(44px, 6vw, 84px); border-radius: 50%; background: var(--ink); }
+  #empty .k { font-family: var(--serif); font-size: clamp(1.8rem, 4.4vw, 4.4rem); font-weight: 700; }
+  #empty .d { font-size: clamp(.9rem, 1.6vw, 1.5rem); letter-spacing: .3em; text-transform: uppercase; color: var(--ink-soft); }
+  #empty .sub { font-size: clamp(.75rem, 1.2vw, 1.1rem); color: var(--ink-faint); letter-spacing: .03em; max-width: 42ch; }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div id="pulse"></div>
+<div id="app" class="hud-off">
+  <button id="settingsBtn" title="Show room details" aria-label="Toggle room details" aria-pressed="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    </svg>
+  </button>
+  <div id="hud">
+    <div class="brand">
+      <span class="kicker">Fabricated 2.0</span>
+      <span class="live"><span class="dot" id="dot"></span><span id="conn">Connecting…</span></span>
+    </div>
+    <div class="hud-right">
+      <div class="code" id="roomcode" style="display:none"></div>
+      <div class="cam" id="cam"></div>
+      <div class="big"><b id="n-available">4</b><span class="lbl">Available<br>tablets</span></div>
+      <div class="avail-dots" id="avail-dots" title="Green = still on the start screen · Red = in a journey"></div>
+      <div class="big"><b id="n-active">0</b><span class="lbl">Active<br>tablets</span></div>
+    </div>
+  </div>
+
+  <div class="col-left">
+    <div class="panel" id="themes">
+      <h2>Most popular themes <span class="n" id="themes-total"></span></h2>
+      <div class="theme" data-themerow="Nature"><span class="name">Nature</span><div class="track"><i data-theme="Nature" style="background:var(--nature)"></i></div><span class="val" data-themeval="Nature">0</span></div>
+      <div class="theme" data-themerow="Culture"><span class="name">Culture</span><div class="track"><i data-theme="Culture" style="background:var(--culture)"></i></div><span class="val" data-themeval="Culture">0</span></div>
+      <div class="theme" data-themerow="Politics"><span class="name">Politics</span><div class="track"><i data-theme="Politics" style="background:var(--politics)"></i></div><span class="val" data-themeval="Politics">0</span></div>
+      <div class="theme" data-themerow="History"><span class="name">History</span><div class="track"><i data-theme="History" style="background:var(--history)"></i></div><span class="val" data-themeval="History">0</span></div>
+    </div>
+    <div class="panel" id="chosen">
+      <h2>Most chosen rabbit holes <span class="n" id="chosen-n"></span></h2>
+      <div id="chosen-list"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="journeys">
+    <h2>Live progress <span class="n" id="journeys-n"></span></h2>
+    <div id="journeys-list"></div>
+  </div>
+</div>
+
+<div id="empty">
+  <div class="ring-wrap"><span class="ring"></span><span class="ring"></span><span class="ring"></span><span class="core"></span></div>
+  <div class="k">Awaiting visitors</div>
+  <div class="d">The collective is listening</div>
+  <div class="sub">Tablets appear here the moment a visitor begins to explore.</div>
+</div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+const IS_HUB   = qs.get('hub') === '1';
+const PROJ_ID  = 'projector2-collective';
+
+// A full journey is 7 decisions: 3 topic-bracket rounds + the 4-deep topic
+// tree (all trees in selection_shared.js are 4 decision levels deep).
+const TOTAL_ROUNDS = 7;
+const TOPIC_ORDER  = ['Nature', 'Culture', 'Politics', 'History'];
+// Number of physical tablets at the installation. "Available" = this minus
+// every connected tablet that has left the start screen (i.e. is in a journey).
+const TOTAL_TABLETS = 4;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// How many of the 7 journey decisions this visitor has COMPLETED.
+//   bracket phase (topic not chosen yet) → topicPhase done (0..2)
+//   topic just committed   (path = [topic]) → 3 (all 3 bracket picks made)
+//   in the topic tree       (path len L ≥ 2) → 2 + L  (= 4, 5, 6)
+//   finished                          → 7
+// (topicPhase is sent by each tablet; when absent it safely reads 0.)
+function decisionsCompleted(p) {
+  if (p.finished) return TOTAL_ROUNDS;
+  const L = (p.path && p.path.length) || 0;
+  if (L >= 1) return Math.min(TOTAL_ROUNDS, 2 + L);
+  return (p.topicPhase || 0);
+}
+
+const visitors = new Map();   // id -> { id, progress }  (display cache, rebuilt from each snapshot)
+const tabletNumbers = new Map();  // id -> stable "Tablet N" number
+let nextTabletNum = 1;
+let room = null;              // P2P.host handle — THIS board IS the room
+let everConnected = false;
+let roomVisitors = {};        // id -> { id, kind, progress }  (authoritative room state)
+let camState = null, camAt = 0;  // latest Projector-1 camera payload + arrival time
+
+// ── Persistent "popularity" tally ──────────────────────────────────────────
+// Cumulative record of every COMPLETED journey, kept on THIS board (the room
+// host) in localStorage so it survives restarts/refreshes. Unlike the live
+// "Live progress" (which resets with each tablet), this stays — so you can
+// see which themes and rabbit holes are most popular over the whole run.
+const POP_KEY = 'fabricated2_popularity_v1';
+function freshPopularity() { return { topics: {}, holes: {}, holeTopic: {}, journeys: 0, seen: [] }; }
+function loadPopularity() {
+  try {
+    const s = JSON.parse(localStorage.getItem(POP_KEY));
+    if (s && typeof s.topics === 'object' && typeof s.holes === 'object') {
+      const f = freshPopularity();
+      f.topics = s.topics || {}; f.holes = s.holes || {}; f.holeTopic = s.holeTopic || {};
+      f.journeys = s.journeys || 0; f.seen = Array.isArray(s.seen) ? s.seen : [];
+      return f;
+    }
+  } catch (e) {}
+  return freshPopularity();
+}
+function savePopularity() { try { localStorage.setItem(POP_KEY, JSON.stringify(popularity)); } catch (e) {} }
+let popularity = loadPopularity();
+if (qs.get('popreset') === '1') { popularity = freshPopularity(); savePopularity(); }   // ?popreset=1 wipes the leaderboard
+
+// Count a completed journey exactly once (keyed by the tablet's unique
+// completion token). Tallies the chosen theme + rabbit hole.
+function registerJourney(id, p) {
+  if (!p || !p.finished) return;
+  const tok = p.completionId;
+  if (!tok || popularity.seen.indexOf(tok) !== -1) return;
+  const topic = (p.path && p.path[0]) || null;
+  if (topic) popularity.topics[topic] = (popularity.topics[topic] || 0) + 1;
+  if (p.choice) {
+    popularity.holes[p.choice] = (popularity.holes[p.choice] || 0) + 1;
+    if (!popularity.holeTopic[p.choice] && topic) popularity.holeTopic[p.choice] = topic;
+  }
+  popularity.journeys += 1;
+  popularity.seen.push(tok);
+  if (popularity.seen.length > 800) popularity.seen = popularity.seen.slice(-800);
+  savePopularity();
+}
+
+// Previous per-visitor signature, so we can tell when the collective MOVED
+// (a tablet joined, left, advanced a round, changed theme, or finished).
+const prevSig = new Map();
+let lastActive = null;
+
+function numOf(id) { return tabletNumbers.get(id) || 0; }
+function sigOf(p) { return { round: (p.path ? p.path.length : 0), finished: !!p.finished, topic: (p.path && p.path[0]) || '' }; }
+
+// Re-fire a CSS animation on a persistent element.
+function bump(el) { if (!el) return; el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+function firePulse() { const el = $('pulse'); if (!el) return; el.classList.remove('fire'); void el.offsetWidth; el.classList.add('fire'); }
+
+// ── Live snapshot from the /session room (real shared data only) ────────────
+function onSnapshot(d) {
+  if (!d || !Array.isArray(d.visitors)) return;
+  const seen = new Set();
+  for (const v of d.visitors) {
+    if (v.kind !== 'tablet') continue;         // display board ignores other projectors
+    seen.add(v.id);
+    if (!tabletNumbers.has(v.id)) tabletNumbers.set(v.id, nextTabletNum++);
+    visitors.set(v.id, { id: v.id, progress: v.progress || {} });
+  }
+  for (const id of [...visitors.keys()]) if (!seen.has(id)) visitors.delete(id);
+
+  // Diff against the previous snapshot → per-visitor "what just changed".
+  const flags = new Map();
+  let activityChange = false;
+  for (const [id, v] of visitors) {
+    const sig = sigOf(v.progress);
+    const prev = prevSig.get(id);
+    const f = { isNew: !prev, advanced: false, justFinished: false };
+    if (!prev) {
+      activityChange = true;                       // a new tablet entered the room
+    } else if (sig.finished && !prev.finished) {
+      f.justFinished = true; f.advanced = true; activityChange = true;
+    } else if (sig.round > prev.round || (sig.topic && sig.topic !== prev.topic)) {
+      f.advanced = true; activityChange = true;
+    }
+    flags.set(id, f);
+  }
+  for (const id of [...prevSig.keys()]) if (!seen.has(id)) { prevSig.delete(id); activityChange = true; }
+
+  renderAll(flags, { cam: d.camera_people || 0, camBlock: d.camera || null, activityChange, activeChanged: visitors.size !== lastActive, pop: d.popularity || null });
+
+  for (const [id, v] of visitors) prevSig.set(id, sigOf(v.progress));
+  lastActive = visitors.size;
+}
+
+function renderAll(flags, meta) {
+  const list = [...visitors.values()];
+  const pop = meta.pop || { journeys: 0, topics: {}, topHoles: [] };
+  const hasHistory = (pop.journeys || 0) > 0;
+  const empty = list.length === 0 && !hasHistory;   // "awaiting" only when nothing's here AND no history yet
+  $('app').classList.toggle('is-empty', empty);
+  $('empty').classList.toggle('on', empty);
+  if (empty) { updateHud(0, meta.cam, meta.camBlock, 0); return; }
+
+  updateHud(list.length, meta.cam, meta.camBlock, list.filter(t => t.progress && t.progress.started).length);
+
+  // ── Most popular themes: CUMULATIVE across every completed journey ──────
+  const topics = pop.topics || {};
+  const totalJ = pop.journeys || 0;
+  $('themes-total').textContent = totalJ ? String(totalJ) : '';
+  const maxT = Math.max(1, ...TOPIC_ORDER.map(t => topics[t] || 0));
+  for (const topic of TOPIC_ORDER) {
+    const n = topics[topic] || 0;
+    document.querySelector(`[data-theme="${topic}"]`).style.width = (n / maxT) * 100 + '%';
+    const valEl = document.querySelector(`[data-themeval="${topic}"]`);
+    if (valEl.textContent !== String(n)) { valEl.textContent = String(n); bump(valEl); }
+    document.querySelector(`[data-themerow="${topic}"]`).classList.toggle('zero', n === 0);
+  }
+
+  // ── Most chosen rabbit holes: CUMULATIVE, most popular first ────────────
+  const holes = (pop.topHoles && pop.topHoles.length) ? pop.topHoles : [];
+  $('chosen-n').textContent = holes.length ? String(holes.length) : '';
+  $('chosen-list').innerHTML = holes.length
+    ? holes.map((h, i) => {
+        const r = (typeof REWARDS !== 'undefined' && REWARDS[h.name]) || {};
+        return '<div class="hole' + (i === 0 ? ' top' : '') + '">' +
+          '<div class="row1"><span class="topic">' + esc((h.topic || '').toUpperCase()) + '</span>' +
+          '<span class="who">' + esc(String(h.count) + '×') + '</span></div>' +
+          '<div class="pick">' + esc(h.name) + '</div>' +
+          (r.text ? '<div class="txt">' + esc(r.text) + '</div>' : '') +
+          '</div>';
+      }).join('')
+    : '<div class="none">No rabbit holes chosen yet.</div>';
+
+  // ── Journey progress: every tablet, live round + breadcrumb ──────────────
+  $('journeys-n').textContent = String(list.length);
+  if (!list.length) {
+    $('journeys-list').innerHTML = '<div class="none">No active explorers right now.</div>';
+  } else {
+  $('journeys-list').innerHTML = list
+    .sort((a, b) => numOf(a.id) - numOf(b.id))
+    .map(t => {
+      const p = t.progress;
+      const f = flags.get(t.id);
+      const cls = ['journey'];
+      if (p.finished) cls.push('done');
+      if (f) { if (f.isNew) cls.push('anim-in'); else if (f.advanced) cls.push('anim-adv'); }
+      let body;
+      if (!p.started) {
+        body = '<div class="wait">Ready to explore</div>';
+      } else if (p.finished) {
+        body = '<div class="bar"><i style="width:100%"></i></div>' +
+               '<div class="path">' + esc((p.path || []).join(' &rarr; ')) + '</div>';
+      } else {
+        const done  = decisionsCompleted(p);
+        const pct   = Math.min(100, Math.round((done / TOTAL_ROUNDS) * 100));
+        const round = Math.min(TOTAL_ROUNDS, done + 1);
+        const path  = (p.path || []);
+        const cur   = (p.options && p.options.length) ? ' &middot; ' + esc(p.options.join('  /  ')) : '';
+        body = '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+               '<div class="path">' + (path.length ? esc(path.join(' &rarr; ')) + ' ' : '') +
+               '<b>round ' + round + ' of ' + TOTAL_ROUNDS + '</b>' + cur + '</div>';
+      }
+      const status = p.finished ? 'Done'
+                   : (p.started ? 'Round ' + Math.min(TOTAL_ROUNDS, decisionsCompleted(p) + 1) : 'Waiting');
+      return '<div class="' + cls.join(' ') + '">' +
+        '<span class="who">Tablet ' + esc(String(numOf(t.id))) + '</span>' +
+        '<span class="status">' + status + '</span>' +
+        body +
+        '</div>';
+    }).join('');
+  }
+
+  // The group moved → sweep the activity bar across the top.
+  if (meta.activityChange) firePulse();
+}
+
+function updateHud(active, cam, camBlock, inUse) {
+  const el = $('n-active');
+  if (el.textContent !== String(active)) { el.textContent = String(active); bump(el); }
+  // Available tablets = the standard 4 minus each tablet off the start screen.
+  const used = inUse || 0;
+  const available = Math.max(0, TOTAL_TABLETS - used);
+  const aEl = $('n-available');
+  if (aEl && aEl.textContent !== String(available)) { aEl.textContent = String(available); bump(aEl); }
+  const dotsEl = $('avail-dots');
+  if (dotsEl) {
+    let dh = '';
+    for (let i = 0; i < TOTAL_TABLETS; i++) dh += '<span class="dot2 ' + (i < used ? 'busy' : 'free') + '"></span>';
+    if (dotsEl._dh !== dh) { dotsEl.innerHTML = dh; dotsEl._dh = dh; }
+  }
+  const camEl = $('cam');
+  if (camBlock && camBlock.active)      camEl.textContent = camBlock.people + (camBlock.people === 1 ? ' person in frame' : ' people in frame');
+  else if (camBlock && camBlock.online) camEl.textContent = 'frame empty';
+  else                                  camEl.textContent = cam ? (cam + (cam === 1 ? ' person in frame' : ' people in frame')) : '';
+}
+
+// ── This board IS the room host (WebRTC via PeerJS — no server). ───────────
+// It keeps the authoritative room state, relays a live snapshot to every
+// connected device, and renders that same snapshot on its own screen.
+function topItems(obj, n) {
+  return Object.keys(obj).map(k => ({ name: k, count: obj[k] }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, n);
+}
+
+function roomSnapshot() {
+  const arr = Object.values(roomVisitors);
+  const online = !!camState && (Date.now() - camAt) <= 1500;
+  const people = camState ? camState.person_count : 0;
+  return {
+    visitors: arr, players: arr,
+    tablet_count: arr.filter(v => v.kind === 'tablet').length,
+    projector_count: arr.filter(v => v.kind === 'projector' || v.kind === 'projector1' || v.kind === 'projector2').length,
+    camera_people: people,
+    camera: { online, people, active: online && people > 0, at: camAt || null },
+    participants: arr.length,
+    state: camState || {},
+    code: P2P.code(),
+    popularity: {
+      journeys: popularity.journeys,
+      topics: popularity.topics,
+      topHoles: topItems(popularity.holes, 12).map(h => ({ name: h.name, count: h.count, topic: popularity.holeTopic[h.name] || '' })),
+    },
+  };
+}
+
+function pushRoom() {
+  everConnected = true;
+  const s = roomSnapshot();
+  if (room) room.broadcast(s);   // to every connected device
+  onSnapshot(s);                 // and to this board
+}
+
+function startRoom() {
+  room = P2P.host({
+    code: P2P.code(),
+    onOpen: () => { $('dot').classList.add('on'); $('conn').textContent = 'Room open · ' + P2P.code(); pushRoom(); },
+    onJoin: (rec) => {
+      if (rec.id) roomVisitors[rec.id] = { id: rec.id, kind: rec.kind || 'tablet', progress: null };
+      pushRoom();
+    },
+    onMessage: (d, rec) => {
+      if (!rec.id) return;
+      const v = roomVisitors[rec.id] || (roomVisitors[rec.id] = { id: rec.id, kind: rec.kind });
+      if (d.type === 'progress') { v.progress = d.progress; registerJourney(rec.id, d.progress); }
+      else if (d.type === 'answer') v.answer = d.answer;
+      else if (d.type === 'state') v.state = d.state;
+      else if (d.type === 'camera') { camState = d.payload || null; camAt = Date.now(); }
+      pushRoom();
+    },
+    onLeave: (rec) => { if (rec.id) delete roomVisitors[rec.id]; pushRoom(); },
+    onError: (e) => {
+      $('dot').classList.remove('on');
+      $('conn').textContent = (e && e.reason === 'code-in-use')
+        ? 'Room code already in use — pick another on the setup page'
+        : 'Room error — reload this screen';
+    },
+  });
+}
+
+// Always show the room code on the big screen so other devices can read it
+// and join from the setup page.
+const codeEl = $('roomcode');
+codeEl.style.display = '';
+codeEl.textContent = 'Room code · ' + (P2P.code() || '—');
+
+// ── Settings gear: show/hide the operational HUD (room code · status · count) ──
+// Hidden by default so the board reads as a clean, full-bleed display; tap the
+// corner gear to reveal the details. The choice is remembered on this device.
+const settingsBtn = $('settingsBtn');
+const HUD_KEY = 'fabricated2_hud_visible';
+function setHud(on) {
+  const app = $('app');
+  app.classList.toggle('hud-on', on);
+  app.classList.toggle('hud-off', !on);
+  settingsBtn.classList.toggle('on', on);
+  settingsBtn.title = on ? 'Hide room details' : 'Show room details';
+  settingsBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  try { localStorage.setItem(HUD_KEY, on ? '1' : '0'); } catch (_) {}
+}
+settingsBtn.addEventListener('click', () => setHud(!$('app').classList.contains('hud-on')));
+let hudVisible = false;
+try { hudVisible = localStorage.getItem(HUD_KEY) === '1'; } catch (_) {}
+setHud(hudVisible);
+
+startRoom();
+</script>
+</body>
+</html>

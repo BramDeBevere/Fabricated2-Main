@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabricated 2.0 · Collective Progress</title>
+<!--
+  PROJECTOR 2 — COLLECTIVE TABLET PROGRESS (shared installation session)
+  ─────────────────────────────────────────────────────────────────────────
+  This is the collective progress BOARD for the tablet-driven session. Each
+  tablet drives its OWN rabbit-hole walk (using the shared walker/content in
+  selection_shared.js) and pushes its progress to the room. This board:
+    • joins the /session WebSocket in api_server.py as kind:"projector"
+    • reads every connected tablet's reported progress from the broadcast
+    • renders one card per visitor (their two current options, breadcrumb
+      path, and the final reward) — one separate card per tablet
+    • reconciles presence so a disconnect only removes that visitor's card
+
+  It REUSES the same trees / rewards as installation.html via
+  selection_shared.js (no duplicated content). The YOLO camera pipeline and
+  Projector 1 (installation.html) are untouched. Live camera people-in-frame
+  are still reported by the server and shown here.
+
+  URL params:
+    ?min=N         number of tablets that counts as "session active" (default 4)
+    ?api=host:8000 override the api_server host:port (defaults to the
+                   current hostname on port 8000)
+-->
+<script src="selection_shared.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0a0a0f; color: #fff;
+               font-family: 'Segoe UI', sans-serif; }
+
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity .5s ease; }
+  .screen.on { opacity: 1; pointer-events: all; }
+
+  /* HUD */
+  #hud { position: fixed; top: 22px; left: 0; right: 0; z-index: 200;
+         display: flex; justify-content: space-between; padding: 0 32px;
+         font-size: .68rem; letter-spacing: .22em; text-transform: uppercase;
+         color: rgba(255,255,255,.35); }
+  #hud .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block; margin-right: 7px; }
+  #hud .dot.on { background: #4ade80; }
+
+  /* WAITING */
+  #waiting { gap: 18px; }
+  #waiting .k { font-size: clamp(2rem,5vw,4rem); font-weight: 700; letter-spacing: .06em; }
+  #waiting .d { font-size: 1rem; letter-spacing: .22em; text-transform: uppercase; color: rgba(255,255,255,.4); }
+
+  /* SELECT (two halves) */
+  #select { flex-direction: row; }
+  .half { flex: 1; position: relative; overflow: hidden; display: flex;
+          flex-direction: column; align-items: center; justify-content: center;
+          background: #0a0a0f; }
+  .half .bg { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: .16; }
+  .half.active { background: rgba(255,255,255,.04); }
+  .half.active .bg { opacity: .34; }
+  .half.chosen { background: rgba(255,255,255,.10); }
+  .half.chosen .label { color: #4ade80; }
+  .half .label { position: relative; font-size: clamp(3rem,10vw,9rem); font-weight: 700; color: #fff;
+                 line-height: 1; padding: 0 32px; text-align: center; transition: color .2s; }
+  .half .count { position: relative; font-size: clamp(1.4rem,4vw,3rem); font-weight: 700;
+                 color: rgba(255,255,255,.25); margin-top: 12px; }
+  .half .bar { position: absolute; bottom: 0; left: 0; height: 5px; width: 0%; background: #fff; }
+  #div { width: 1px; background: #1e1e28; align-self: stretch; flex-shrink: 0; }
+
+  #round { position: fixed; top: 62px; left: 50%; transform: translateX(-50%);
+           font-size: .8rem; letter-spacing: .22em; text-transform: uppercase; color: rgba(255,255,255,.35); }
+  #path { position: fixed; top: 92px; left: 50%; transform: translateX(-50%);
+          font-size: .68rem; letter-spacing: .2em; text-transform: uppercase; color: rgba(255,255,255,.25);
+          white-space: nowrap; }
+
+  #restart { position: fixed; bottom: 22px; right: 32px; z-index: 210;
+             border: 1px solid rgba(255,255,255,.15); background: none; color: rgba(255,255,255,.35);
+             font-family: inherit; font-size: .62rem; letter-spacing: .2em; text-transform: uppercase;
+             padding: 8px 18px; border-radius: 2px; cursor: pointer; }
+  #restart:hover { border-color: #4ade80; color: #4ade80; }
+
+  /* REWARD */
+  #reward { gap: 34px; background: #0a0a0f; }
+  #reward-media { max-width: 66vw; max-height: 48vh; display: flex; align-items: center; justify-content: center; }
+  #reward-img, #reward-video { max-width: 66vw; max-height: 48vh; border-radius: 6px; object-fit: contain; display: block; }
+  #reward-info { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 720px; text-align: center; }
+  #reward-topic { font-size: .7rem; letter-spacing: .4em; text-transform: uppercase; color: rgba(255,255,255,.3); }
+  #reward-title { font-size: clamp(2rem,5vw,3.6rem); font-weight: 700; }
+  #reward-text { font-size: clamp(.95rem,1.6vw,1.2rem); font-weight: 300; line-height: 1.7; color: rgba(255,255,255,.6); max-width: 620px; }
+  .flag { display: flex; height: 3px; width: 140px; margin-top: 10px; }
+  .flag span { flex: 1; }
+</style>
+</head>
+<body>
+
+<style>
+  /* Per-visitor grid (additive; the old screen styles above are now unused) */
+  #visitors { position: fixed; inset: 70px 20px 20px; overflow: auto;
+              display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+              gap: 16px; align-content: start; }
+  .vcard { background: #121218; border: 1px solid #20202c; border-radius: 10px;
+           padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; min-height: 190px; }
+  .vcard.done { border-color: rgba(74,222,128,.4); }
+  .vcard.empty { justify-content: center; align-items: center; color: rgba(255,255,255,.35); }
+  .vhead { display: flex; justify-content: space-between; align-items: baseline; }
+  .vid { font-size: .8rem; letter-spacing: .2em; color: #4ade80; text-transform: uppercase; }
+  .vstatus { font-size: .62rem; letter-spacing: .2em; text-transform: uppercase; color: rgba(255,255,255,.35); }
+  .vopts { display: flex; gap: 10px; }
+  .vopt { flex: 1; text-align: center; font-size: 1.4rem; font-weight: 700; color: #555;
+          border: 1px solid #26262f; border-radius: 8px; padding: 14px 6px; transition: all .2s; }
+  .vopt.active { color: #fff; border-color: #4ade80; background: rgba(74,222,128,.08); }
+  .vbar { height: 5px; background: #1c1c24; border-radius: 3px; overflow: hidden; }
+  .vbar i { display: block; height: 100%; background: #fff; width: 0%; }
+  .vpath { font-size: .72rem; letter-spacing: .12em; color: rgba(255,255,255,.45); line-height: 1.5; }
+  .vwait { font-size: .85rem; color: rgba(255,255,255,.3); }
+  .rtopic { font-size: .6rem; letter-spacing: .3em; text-transform: uppercase; color: rgba(255,255,255,.35); }
+  .rtitle { font-size: 1.7rem; font-weight: 700; color: #4ade80; line-height: 1.1; }
+  .rtext { font-size: .82rem; line-height: 1.6; color: rgba(255,255,255,.6); }
+</style>
+
+<div id="hud">
+  <span><span class="dot" id="dot"></span><span id="conn">Connecting…</span></span>
+  <span id="counts"></span>
+</div>
+
+<!-- One card per visitor — each tracking its own separate progress -->
+<div id="visitors"></div>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────────────
+const qs = new URLSearchParams(location.search);
+const API_HOST    = qs.get('api') || ((location.hostname || 'localhost') + ':8000');
+const PROJ_ID     = 'projector2';
+const MIN_TABLETS = parseInt(qs.get('min') || '4', 10); // start gate ("at least four").
+                                                        // NOT an upper bound — any
+                                                        // number of tablets can join.
+const DWELL_MS    = 3000;   // a visitor's chosen side must be held this long
+
+
+// ── Per-visitor progress (each tablet drives its OWN rabbit-hole walk) ───────
+// The tablet is the authority for its own walk (shared walker in
+// selection_shared.js) and pushes its progress to the room. This board only
+// DISPLAYS each visitor's separate progress and reconciles presence, so a
+// disconnect removes only that one visitor's card.
+const visitors = new Map();   // id -> { id, kind, progress }
+let ws = null;
+const $ = id => document.getElementById(id);
+let lastCameraPeople = 0;
+
+// Stable, human-friendly labels: each connected tablet gets a "Tablet N"
+// number that sticks to it for the session (the board's "Tablet 1 is on this
+// rabbit hole" intent). Numbers are assigned on first sight and not reused,
+// so a tablet keeps its number even as others join or leave.
+const tabletNumbers = new Map();   // id -> display number
+let nextTabletNum = 1;
+
+// ── Snapshot handling (server → projector): reconcile + display ──────────────
+function onSnapshot(d) {
+  const all     = d.visitors || d.players || [];
+  const tablets = all.filter(v => v.kind === 'tablet');
+
+  // Reconcile presence — the core of safe disconnect handling: anyone in the
+  // snapshot is alive; anyone gone is dropped (only their separate card).
+  const seen = new Set();
+  for (const v of tablets) {
+    seen.add(v.id);
+    if (!tabletNumbers.has(v.id)) tabletNumbers.set(v.id, nextTabletNum++);
+    visitors.set(v.id, { id: v.id, kind: 'tablet', progress: (v.progress || null) });
+  }
+  for (const id of [...visitors.keys()]) if (!seen.has(id)) visitors.delete(id);
+
+  renderAll();
+}
+
+// ── Render the collective view: one separate card per visitor ────────────────
+function shortId(id) { return String(id).replace(/^v-/, '').slice(0, 6); }
+
+function esc(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderAll() {
+  const ready = visitors.size >= MIN_TABLETS;
+  $('counts').innerHTML =
+    '<b>' + visitors.size + '</b> tablet' + (visitors.size === 1 ? '' : 's')
+    + (ready ? ' · session active' : ' · waiting for group (min ' + MIN_TABLETS + ')')
+    + (lastCameraPeople ? ' · ' + lastCameraPeople + ' in frame' : '');
+
+  const grid = $('visitors');
+  grid.innerHTML = '';
+  if (visitors.size === 0) {
+    const card = document.createElement('div');
+    card.className = 'vcard empty';
+    card.innerHTML = '<div class="vtitle">Waiting…</div><div class="vpath">Tablets appear here as they connect and start exploring.</div>';
+    grid.appendChild(card);
+    return;
+  }
+  for (const v of visitors.values()) grid.appendChild(renderCard(v));
+}
+
+function renderCard(v) {
+  const p = v.progress || {};
+  const card = document.createElement('div');
+  card.className = 'vcard' + (p.finished ? ' done' : '');
+
+  const status = p.finished ? 'Done' : (p.started ? 'Exploring' : 'Not started');
+  let body;
+  if (p.finished) {
+    const r = (typeof REWARDS !== 'undefined' && REWARDS[p.choice]) || {};
+    const topic = p.topic || (p.path && p.path[0]) || '';
+    body =
+      '<div class="rtopic">' + esc(String(topic).toUpperCase()) + '</div>' +
+      '<div class="rtitle">' + esc(p.choice || '') + '</div>' +
+      (r.text ? '<div class="rtext">' + esc(r.text) + '</div>' : '');
+  } else if (p.started) {
+    const opts = p.options || ['A', 'B'];
+    body =
+      '<div class="vopts">' +
+        '<span class="vopt">' + esc(opts[0]) + '</span>' +
+        '<span class="vopt">' + esc(opts[1]) + '</span>' +
+      '</div>' +
+      '<div class="vpath">' + esc((p.path && p.path.length) ? p.path.join(' → ') : 'Choosing a rabbit hole…') + '</div>';
+  } else {
+    body = '<div class="vwait">Ready to explore.</div>';
+  }
+
+  card.innerHTML =
+    '<div class="vhead">' +
+      '<span class="vid">Tablet ' + esc(String(tabletNumbers.get(v.id) ?? '')) + '</span>' +
+      '<span class="vstatus">' + status + '</span>' +
+    '</div>' +
+    body;
+  return card;
+}
+
+function connect() {
+  ws = new WebSocket('ws://' + API_HOST + '/session');
+  ws.onopen = () => {
+    $('dot').classList.add('on'); $('conn').textContent = 'Connected';
+    ws.send(JSON.stringify({ type: 'join', id: PROJ_ID, kind: 'projector' }));
+  };
+  ws.onclose = () => {
+    $('dot').classList.remove('on'); $('conn').textContent = 'Disconnected — retrying…';
+    setTimeout(connect, 2000);
+  };
+  ws.onmessage = e => {
+    const d = JSON.parse(e.data);
+    lastCameraPeople = d.camera_people || 0;
+    onSnapshot(d);
+  };
+}
+
+renderAll();
+connect();
+</script>
+</body>
+</html>

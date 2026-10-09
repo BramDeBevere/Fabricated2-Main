@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>History of Venezuela</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Inter:wght@300;400&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --bg:#0c0f0a; --fg:#ddd8cc; --dim:rgba(221,216,204,0.35);
+  --gold:#b8972a; --gold-dim:rgba(184,151,42,0.18);
+}
+html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--fg); font-family:'Inter',sans-serif; }
+
+.screen {
+  position:fixed; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  opacity:0; pointer-events:none; transition:opacity 0.65s ease;
+}
+.screen.on { opacity:1; pointer-events:all; }
+
+/* CHOICE */
+#choice-screen { flex-direction:column; align-items:stretch; padding:0; }
+
+#options-row {
+  display:flex; flex-direction:row; align-items:stretch;
+  width:100%; height:100vh;
+}
+
+#question-bubble {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  background:var(--bg); border:1px solid rgba(221,216,204,0.1);
+  border-radius:100px; padding:10px 28px;
+  font-family:'Cormorant Garamond',serif; font-style:italic;
+  font-size:clamp(0.9rem,1.7vw,1.1rem); color:var(--dim);
+  letter-spacing:0.02em; text-align:center; max-width:220px;
+  z-index:11; pointer-events:none; white-space:normal;
+}
+
+.side {
+  flex:1; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  position:relative; overflow:hidden; cursor:pointer;
+  border:none; background:none; padding:0;
+  border-right:1px solid rgba(221,216,204,0.06);
+}
+.side:last-child { border-right:none; }
+
+.side-bg {
+  position:absolute; inset:0;
+  background-size:cover; background-position:center;
+  filter:brightness(0.32) saturate(0.55);
+  transition:filter 0.45s ease, transform 0.65s ease;
+}
+.side:hover .side-bg { filter:brightness(0.52) saturate(0.85); transform:scale(1.05); }
+
+.side-vignette {
+  position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(to bottom,
+    rgba(12,15,10,0.4) 0%, rgba(12,15,10,0) 35%,
+    rgba(12,15,10,0) 65%, rgba(12,15,10,0.55) 100%);
+}
+
+.side-content {
+  position:relative; z-index:2;
+  display:flex; flex-direction:column; align-items:center; gap:16px;
+  padding:0 40px; text-align:center;
+  transform:translateY(8px); transition:transform 0.38s ease;
+}
+.side:hover .side-content { transform:translateY(0); }
+
+.side-label {
+  font-family:'Cormorant Garamond',serif;
+  font-size:clamp(2.2rem,4vw,4.5rem); font-weight:300;
+  color:var(--fg); letter-spacing:0.03em; line-height:1;
+  text-shadow:0 2px 30px rgba(0,0,0,0.9);
+}
+.side-hint {
+  font-size:0.6rem; letter-spacing:0.44em; text-transform:uppercase;
+  color:var(--dim); text-shadow:0 1px 10px rgba(0,0,0,0.9);
+  opacity:0; transition:opacity 0.3s ease 0.06s;
+}
+.side:hover .side-hint { opacity:1; }
+
+/* BACK + BREADCRUMB */
+#back-btn {
+  position:fixed; top:24px; left:24px; z-index:200;
+  background:none; border:1px solid rgba(221,216,204,0.12);
+  color:var(--dim); font-family:'Inter',sans-serif;
+  font-size:0.59rem; letter-spacing:0.4em; text-transform:uppercase;
+  padding:8px 16px; border-radius:2px; cursor:pointer;
+  transition:border-color 0.2s, color 0.2s, opacity 0.3s;
+  opacity:0; pointer-events:none;
+}
+#back-btn.show { opacity:1; pointer-events:all; }
+#back-btn:hover { border-color:var(--gold); color:var(--gold); }
+
+#breadcrumb {
+  position:fixed; top:28px; left:50%; transform:translateX(-50%);
+  font-size:0.56rem; letter-spacing:0.42em; text-transform:uppercase;
+  color:rgba(221,216,204,0.18); z-index:200; white-space:nowrap;
+}
+
+/* LEAF */
+#leaf-screen { gap:20px; padding:48px 24px; text-align:center; }
+.leaf-eyebrow { font-size:0.58rem; letter-spacing:0.52em; text-transform:uppercase; color:var(--gold); }
+.leaf-title {
+  font-family:'Cormorant Garamond',serif;
+  font-size:clamp(3rem,7vw,6.5rem); font-weight:300; color:var(--fg); line-height:1;
+}
+.leaf-img { width:min(580px,88vw); aspect-ratio:16/10; border-radius:3px; overflow:hidden; }
+.leaf-img img { width:100%; height:100%; object-fit:cover; filter:brightness(0.85) saturate(0.8); }
+.leaf-path { font-size:0.58rem; letter-spacing:0.3em; text-transform:uppercase; color:var(--dim); margin-top: 8px;}
+
+/* LEAF TEXT STYLING */
+.leaf-desc { 
+  font-family:'Cormorant Garamond',serif; 
+  font-style:italic; 
+  font-size:1.25rem; 
+  line-height:1.6; 
+  color:rgba(221,216,204,0.8); 
+  max-width:600px; 
+  margin:10px auto 16px; 
+}
+
+.restart-btn {
+  margin-top:6px; background:none; border:1px solid rgba(221,216,204,0.14);
+  color:var(--dim); font-family:'Inter',sans-serif;
+  font-size:0.6rem; letter-spacing:0.38em; text-transform:uppercase;
+  padding:10px 28px; border-radius:2px; cursor:pointer;
+  transition:border-color 0.2s, color 0.2s;
+}
+.restart-btn:hover { border-color:var(--gold); color:var(--gold); }
+
+/* REWARD */
+#reward-screen { overflow-y:auto; padding:72px 24px 96px; flex-direction:column; align-items:center; justify-content:flex-start; gap:0; }
+.rw { width:100%; max-width:740px; display:flex; flex-direction:column; align-items:center; }
+.rw-eyebrow { font-size:0.58rem; letter-spacing:0.5em; text-transform:uppercase; color:var(--gold); margin-bottom:20px; }
+.rw-title { font-family:'Cormorant Garamond',serif; font-size:clamp(2.2rem,4.5vw,3.8rem); font-weight:300; text-align:center; line-height:1.15; }
+.rw-rule { width:34px; height:1px; background:var(--gold); opacity:0.4; margin:32px auto; }
+.rw-text { font-family:'Cormorant Garamond',serif; font-style:italic; font-size:1.15rem; line-height:1.78; color:rgba(221,216,204,0.68); text-align:center; max-width:560px; }
+.rw-gap-sm { height:24px; flex-shrink:0; }
+.rw-gap-md { height:48px; flex-shrink:0; }
+.rw-gap-lg { height:72px; flex-shrink:0; }
+.rw-video { width:100%; aspect-ratio:16/9; border-radius:4px; overflow:hidden; background:#0a0a0a; }
+.rw-video video, .rw-video iframe { width:100%; height:100%; display:block; border:none; object-fit:cover; }
+.rw-video-lbl { font-size:0.56rem; letter-spacing:0.36em; text-transform:uppercase; color:var(--dim); margin-top:8px; }
+.rw-gallery { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; width:100%; }
+.rw-gallery-item { aspect-ratio:4/3; border-radius:3px; overflow:hidden; }
+.rw-gallery-item img { width:100%; height:100%; object-fit:cover; display:block; filter:brightness(0.78) saturate(0.75); transition:filter 0.35s, transform 0.45s; }
+.rw-gallery-item:hover img { filter:brightness(0.98) saturate(1); transform:scale(1.06); }
+.rw-cta { background:none; border:1px solid var(--gold); color:var(--gold); font-family:'Inter',sans-serif; font-size:0.63rem; letter-spacing:0.36em; text-transform:uppercase; padding:14px 40px; border-radius:2px; cursor:pointer; transition:background 0.22s, color 0.22s; }
+.rw-cta:hover { background:var(--gold); color:var(--bg); }
+
+body::after {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:999;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity:0.026;
+}
+</style>
+</head>
+<body>
+
+<button id="back-btn" onclick="goBack()">← Back</button>
+<div id="breadcrumb">History</div>
+
+<!-- CHOICE SCREEN -->
+<div class="screen on" id="choice-screen">
+  <div id="question-bubble"></div>
+  <div id="options-row"></div>
+</div>
+
+<!-- LEAF SCREEN -->
+<div class="screen" id="leaf-screen">
+  <div class="leaf-eyebrow">A moment in time</div>
+  <div class="leaf-title" id="leaf-title"></div>
+  <div class="leaf-img"><img id="leaf-img" src="" alt=""></div>
+  <div class="leaf-path" id="leaf-path"></div>
+  
+  <div class="leaf-desc" id="leaf-desc"></div>
+  
+  <button class="restart-btn" onclick="restart()">Explore history</button>
+</div>
+
+<!-- REWARD SCREEN -->
+<div class="screen" id="reward-screen">
+  <div class="rw">
+    <div class="rw-eyebrow">Legacy complete</div>
+    <div class="rw-title">The story of a nation.</div>
+    <div class="rw-rule"></div>
+    <div class="rw-text">
+      From ancient legends to modern resilience, the history of Venezuela is written by its people. You have explored the threads that weave this incredible legacy.
+    </div>
+    <div class="rw-gap-lg"></div>
+
+    <div class="rw-video">
+      <video autoplay loop muted playsinline src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"></video>
+    </div>
+    <div class="rw-video-lbl">← swap with your video</div>
+
+    <div class="rw-gap-lg"></div>
+    <div class="rw-rule"></div>
+
+    <div class="rw-gallery">
+      <div class="rw-gallery-item"><img id="rw-g1" src="" alt=""></div>
+      <div class="rw-gallery-item"><img id="rw-g2" src="" alt=""></div>
+      <div class="rw-gallery-item"><img id="rw-g3" src="" alt=""></div>
+    </div>
+
+    <div class="rw-gap-lg"></div>
+    <button class="rw-cta" onclick="restart()">Explore again</button>
+    <div class="rw-gap-lg"></div>
+  </div>
+</div>
+
+<script>
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  AUDIO SETUP                                                 ║
+// ╚══════════════════════════════════════════════════════════════╝
+const AUDIO = {
+  back: new Audio('back.mp3'),
+  ambient: new Audio('ambient.mp3'),
+  tribal: new Audio('tribal.mp3'),
+  colonial: new Audio('colonial.mp3'),
+  epic: new Audio('epic.mp3'),
+  city: new Audio('city.mp3'),
+  somber: new Audio('somber.mp3'),
+  hopeful: new Audio('hopeful.mp3'),
+  reward: new Audio('reward.mp3')
+};
+
+function playSound(name) {
+  if (AUDIO[name]) {
+    AUDIO[name].currentTime = 0; 
+    AUDIO[name].play().catch(err => console.log("Audio prevented:", err));
+  }
+}
+
+let currentBgSound = null;
+function playBackground(name) {
+  if (currentBgSound === name) return;
+  
+  ['ambient', 'tribal', 'colonial', 'epic', 'city', 'somber', 'hopeful', 'reward'].forEach(s => {
+    if (AUDIO[s]) AUDIO[s].pause(); 
+  });
+
+  if (AUDIO[name]) {
+    AUDIO[name].currentTime = 0; 
+    AUDIO[name].loop = true; 
+    AUDIO[name].play().catch(err => console.log("Audio prevented:", err));
+    currentBgSound = name;
+  }
+}
+
+document.body.addEventListener('click', () => {
+  if (currentBgSound && AUDIO[currentBgSound] && AUDIO[currentBgSound].paused) {
+    playBackground(current.bg || 'ambient');
+  }
+});
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  ALL TEXTS — Human-written, factual history blurbs           ║
+// ╚══════════════════════════════════════════════════════════════╝
+const TEXTS = {
+  "Pemon People": "The Pemon have lived in the Gran Sabana for generations. To them, the tepuis aren't just mountains—they are the petrified stumps of a sacred tree that once held all the fruits of the world.",
+  "Warao Canoes": "The word 'Warao' translates roughly to 'boat people'. For thousands of years, they have navigated the maze of the Orinoco Delta, carving canoes from single tree trunks and building homes on stilts above the water.",
+  "Tepui Legends": "Rising thousands of feet above the jungle, the tepuis act as ecological islands. They are so isolated from the jungle floor below that half the plants at their summits exist nowhere else on Earth.",
+  "Orinoco Civilizations": "Before European ships arrived, the Orinoco river basin was a massive highway for trade. Ancient communities left their mark carved into massive rocks along the riverbanks, telling stories researchers are still trying to decode.",
+  "Caracas Founding": "In 1567, Diego de Losada established a small settlement in a valley guarded by the Avila mountain. He named it Santiago de León de Caracas, laying the foundation for what would become a sprawling metropolis.",
+  "Cathedral": "The Caracas Cathedral has stood through centuries of change. It survived the devastating earthquake of 1812, watching generations of Venezuelans pass through the Plaza Bolívar outside its heavy wooden doors.",
+  "Simon Bolivar": "Born to wealth in Caracas, Bolívar sacrificed everything to lead military campaigns across the continent. His strategic brilliance eventually ended Spanish rule across six modern-day nations.",
+  "Independence War": "The fight for independence lasted over a decade. It was a brutal, exhausting conflict across mountains and plains that left the landscape scarred, but ultimately forged a free republic.",
+  "1970s Wealth": "When oil prices spiked, money flooded into Venezuela. It was an era of heavy infrastructure spending, Concorde flights to Paris, and a widespread belief that the economic boom would never end.",
+  "Caracas Skyline": "Petrodollars physically transformed the capital. Concrete and glass towers shot up across the valley, most notably the Parque Central Complex, reflecting a nation aggressively building its future.",
+  "PDVSA Collapse": "The engine of the economy eventually stalled. Decades of political interference and lack of maintenance hollowed out the state oil company, severely damaging the country's primary source of revenue.",
+  "2000s Poverty": "The economic collapse wiped out savings and disrupted the supply chain. Hyperinflation took hold, turning ordinary daily life into a deeply difficult struggle for basic survival.",
+  "Return Migration": "Eventually, the tide begins to shift. Some of those who left are slowly making their way back, bringing new skills, businesses, and perspectives to a country that has fundamentally changed.",
+  "Community Rebuilding": "Waiting for outside help wasn't an option. Neighborhoods began organizing their own solutions, patching infrastructure, and relying on fierce mutual support to keep their communities alive.",
+  "Venezuelans Worldwide": "Driven by economic necessity, over seven million people packed up their lives and left. You can now find Venezuelan communities starting over from scratch in cities across the Americas and Europe.",
+  "Cultural Identity": "Even far from home, the culture survives intact. The diaspora has taken their food, their music, and their dialect with them, turning dishes like the arepa into globally recognized staples."
+};
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  ALL PHOTOS — Updated to match your screenshot exactly!      ║
+// ╚══════════════════════════════════════════════════════════════╝
+const PHOTOS = {
+  // Main background categories (reusing good images)
+  "early years": "pre-colonial.jpg",
+  "the republic": "modern.jpg",
+  
+  "ancient voices": "pre-colonial.jpg",
+  "colonial era": "Colonial1.jpg",
+  "the oil age": "oil-era.jpg",
+  "recent times": "modern.jpg",
+  
+  "the people": "indigenous.webp",
+  "the land": "pre-colonial.jpg",
+  "spanish rule": "Colonial1.jpg",
+  "resistance": "Colonial 2.jpg",
+  "the boom": "oil-era.jpg",
+  "the decline": "pdvsa-collapse.jpg",
+  "the diaspora": "modern2.jpg",
+  "hope & rebuilding": "return-migration.jpg",
+  
+  // The actual specific end screens (from your screenshot)
+  "pemon people": "pemon-people.jpg",
+  "warao canoes": "warao-canoes.jpg",
+  "tepui legends": "tepui-legends.jpg",
+  "orinoco civilizations": "orinoco-civilizations.jpg",
+  
+  "caracas founding": "caracas-founding.jpg",
+  "cathedral": "cathedral.jpg",
+  "simon bolivar": "simon-bolivar.jpg",
+  "independence war": "independence-war.jpg",
+  
+  "1970s wealth": "1970s-wealth.jpg",
+  "caracas skyline": "caracas-skyline.jpg",
+  "pdvsa collapse": "pdvsa-collapse.jpg",
+  "2000s poverty": "2000s-poverty.jpg",
+  
+  "venezuelans worldwide": "venezuelans-worldwide.jpg",
+  "cultural identity": "cultural-identity.jpg",
+  "return migration": "return-migration.jpg",
+  "community rebuilding": "community-rebuilding.jpg",
+  
+  // Rewards
+  "reward_photo_1": "reward-1.jpg",
+  "reward_photo_2": "reward-2.jpg",
+  "reward_photo_3": "reward-3.jpg"
+};
+
+// Default fallback image if something goes wrong
+const _fallback = "pre-colonial.jpg";
+const img = lbl => PHOTOS[lbl.toLowerCase()] || _fallback;
+
+// ══════════════════════════════════════════════════════════
+//  TREE STRUCTURE (Strictly 2 options per screen)
+// ══════════════════════════════════════════════════════════
+const TREE = {
+  bg: "ambient",
+  question: "Where does our story begin?",
+  options: [
+    { label: "Early Years", node: {
+      bg: "ambient",
+      question: "Before or after the Spanish arrival?",
+      options: [
+        { label: "Ancient Voices", node: {
+          bg: "tribal",
+          question: "The people or the land?",
+          options: [
+            { label: "The People", node: {
+              bg: "tribal",
+              question: "Who will you meet?",
+              options: [
+                { label: "Pemon People", node: { leaf:true, bg:"tribal", label:"Pemon People", path:"Early Years → Ancient Voices → The People → Pemon People" }},
+                { label: "Warao Canoes", node: { leaf:true, bg:"tribal", label:"Warao Canoes", path:"Early Years → Ancient Voices → The People → Warao Canoes" }},
+              ]
+            }},
+            { label: "The Land", node: {
+              bg: "tribal",
+              question: "What mysteries remain?",
+              options: [
+                { label: "Tepui Legends", node: { leaf:true, bg:"tribal", label:"Tepui Legends", path:"Early Years → Ancient Voices → The Land → Tepui Legends" }},
+                { label: "Orinoco Civilizations", node: { leaf:true, bg:"tribal", label:"Orinoco Civilizations", path:"Early Years → Ancient Voices → The Land → Orinoco Civilizations" }},
+              ]
+            }}
+          ]
+        }},
+        { label: "Colonial Era", node: {
+          bg: "colonial",
+          question: "The Empire's rule, or the fight against it?",
+          options: [
+            { label: "Spanish Rule", node: {
+              bg: "colonial",
+              question: "What was built?",
+              options: [
+                { label: "Caracas Founding", node: { leaf:true, bg:"colonial", label:"Caracas Founding", path:"Early Years → Colonial Era → Spanish Rule → Caracas Founding" }},
+                { label: "Cathedral", node: { leaf:true, bg:"colonial", label:"Cathedral", path:"Early Years → Colonial Era → Spanish Rule → Cathedral" }},
+              ]
+            }},
+            { label: "Resistance", node: {
+              bg: "epic",
+              question: "Who led the charge?",
+              options: [
+                { label: "Simon Bolivar", node: { leaf:true, reward:true, bg:"reward", label:"Simon Bolivar", path:"Early Years → Colonial Era → Resistance → Simon Bolivar" }},
+                { label: "Independence War", node: { leaf:true, bg:"epic", label:"Independence War", path:"Early Years → Colonial Era → Resistance → Independence War" }},
+              ]
+            }}
+          ]
+        }}
+      ]
+    }},
+    { label: "The Republic", node: {
+      bg: "somber",
+      question: "The age of oil, or recent decades?",
+      options: [
+        { label: "The Oil Age", node: {
+          bg: "city",
+          question: "The rise or the fall?",
+          options: [
+            { label: "The Boom", node: {
+              bg: "city",
+              question: "What did wealth bring?",
+              options: [
+                { label: "1970s Wealth", node: { leaf:true, bg:"city", label:"1970s Wealth", path:"The Republic → The Oil Age → The Boom → 1970s Wealth" }},
+                { label: "Caracas Skyline", node: { leaf:true, bg:"city", label:"Caracas Skyline", path:"The Republic → The Oil Age → The Boom → Caracas Skyline" }},
+              ]
+            }},
+            { label: "The Decline", node: {
+              bg: "somber",
+              question: "What broke the system?",
+              options: [
+                { label: "PDVSA Collapse", node: { leaf:true, bg:"somber", label:"PDVSA Collapse", path:"The Republic → The Oil Age → The Decline → PDVSA Collapse" }},
+                { label: "2000s Poverty", node: { leaf:true, bg:"somber", label:"2000s Poverty", path:"The Republic → The Oil Age → The Decline → 2000s Poverty" }},
+              ]
+            }}
+          ]
+        }},
+        { label: "Recent Times", node: {
+          bg: "somber",
+          question: "Those who left, or the hope that remains?",
+          options: [
+            { label: "The Diaspora", node: {
+              bg: "somber",
+              question: "Where did they go?",
+              options: [
+                { label: "Venezuelans Worldwide", node: { leaf:true, bg:"somber", label:"Venezuelans Worldwide", path:"The Republic → Recent Times → The Diaspora → Venezuelans Worldwide" }},
+                { label: "Cultural Identity", node: { leaf:true, bg:"hopeful", label:"Cultural Identity", path:"The Republic → Recent Times → The Diaspora → Cultural Identity" }},
+              ]
+            }},
+            { label: "Hope & Rebuilding", node: {
+              bg: "hopeful",
+              question: "How does the nation heal?",
+              options: [
+                { label: "Return Migration", node: { leaf:true, bg:"hopeful", label:"Return Migration", path:"The Republic → Recent Times → Hope & Rebuilding → Return Migration" }},
+                { label: "Community Rebuilding", node: { leaf:true, bg:"hopeful", label:"Community Rebuilding", path:"The Republic → Recent Times → Hope & Rebuilding → Community Rebuilding" }},
+              ]
+            }}
+          ]
+        }}
+      ]
+    }}
+  ]
+};
+
+// ══════════════════════════════════════════════════════════
+//  STATE & RENDER
+// ══════════════════════════════════════════════════════════
+let stack = [], current = TREE;
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+}
+
+function buildCrumb() {
+  const parts = stack.map(n => n._pickedLabel).filter(Boolean);
+  return parts.length ? 'History · ' + parts.join(' · ') : 'History';
+}
+
+function render() {
+  document.getElementById('back-btn').classList.toggle('show', stack.length > 0);
+  document.getElementById('breadcrumb').textContent = buildCrumb();
+
+  playBackground(current.bg || 'ambient');
+
+  if (current.leaf) {
+    if (current.reward) { 
+      showScreen('reward-screen'); 
+      return; 
+    }
+    
+    document.getElementById('leaf-title').textContent = current.label;
+    document.getElementById('leaf-img').src           = img(current.label);
+    document.getElementById('leaf-path').textContent  = current.path;
+    document.getElementById('leaf-desc').textContent  = TEXTS[current.label] || "History awaits...";
+    
+    showScreen('leaf-screen');
+    return;
+  }
+
+  document.getElementById('question-bubble').textContent = current.question;
+  const row = document.getElementById('options-row');
+  row.innerHTML = '';
+  current.options.forEach((opt, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'side';
+    btn.innerHTML = `
+      <div class="side-bg" style="background-image:url('${img(opt.label)}')"></div>
+      <div class="side-vignette"></div>
+      <div class="side-content">
+        <div class="side-label">${opt.label}</div>
+        <div class="side-hint">Stand here to choose</div>
+      </div>`;
+    btn.addEventListener('click', () => choose(i));
+    row.appendChild(btn);
+  });
+
+  showScreen('choice-screen');
+}
+
+function choose(index) {
+  const opt = current.options[index];
+  if (!opt) return;
+  current._pickedLabel = opt.label;
+  stack.push(current);
+  current = opt.node;
+  render();
+}
+
+function goBack() {
+  if (!stack.length) return;
+  playSound('back'); 
+  current = stack.pop();
+  render();
+}
+
+function restart() {
+  playSound('back');
+  stack = []; current = TREE;
+  render();
+}
+
+window.cameraChoose = (val) => {
+  if (!current || current.leaf) return;
+  if (typeof val === 'string') {
+    val = val === 'left' ? 0 : (val === 'right' ? (current.options.length - 1) : 1);
+  }
+  choose(val);
+};
+window.getNatureState = () => ({ current, stack });
+
+document.getElementById('rw-g1').src = PHOTOS.reward_photo_1 || _fallback;
+document.getElementById('rw-g2').src = PHOTOS.reward_photo_2 || _fallback;
+document.getElementById('rw-g3').src = PHOTOS.reward_photo_3 || _fallback;
+
+render();
+</script>
+</body>
+</html>

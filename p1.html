@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fabricated 2.0 · Projector 1 (camera stage)</title>
+  <link rel="stylesheet" href="installation.css">
+  <!-- Shared rabbit-hole content + walker (single source of truth; also used by
+       tablet.html and projector2.html). P2P: joins the local room by code
+       (p2p.js) and runs person detection IN THE BROWSER instead of the Pi. -->
+  <script src="selection_shared.js"></script>
+</head>
+<body>
+
+<div id="intro">
+  <div id="intro-eyebrow">Venezuela · 2026</div>
+  <div id="intro-title" data-text="Fabricated 2.0">Fabricated 2.0</div>
+  <div id="flag-bars">
+    <div class="fbar y"></div>
+    <div class="fbar b"></div>
+    <div class="fbar r"></div>
+  </div>
+  <div id="intro-sub">Ala, Bram, Markus & Sanarya</div>
+</div>
+
+<audio id="bg-noise" src="Protest_123.mp3" loop preload="auto"></audio>
+
+<div id="video-overlay">
+  <video id="narrative-video" loop playsinline></video>
+  <div id="video-handle"></div>
+  <div id="video-flag">
+    <span style="background:#F4BE00"></span>
+    <span style="background:#003F87"></span>
+    <span style="background:#CE1126"></span>
+  </div>
+</div>
+
+<div id="narrative-overlay">
+  <div id="narrative-card">
+    <div id="narrative-accent"></div>
+    <div id="narrative-handle"></div>
+    <div id="narrative-quote"></div>
+    <div id="narrative-flag">
+      <span style="background:#F4BE00"></span>
+      <span style="background:#003F87"></span>
+      <span style="background:#CE1126"></span>
+    </div>
+    <div id="narrative-meta">
+      <span id="narrative-counter"></span>
+      <span id="narrative-hold">Mantened la posición</span>
+    </div>
+  </div>
+</div>
+
+<div id="sel-screen" class="hidden" style="display:none">
+  <div class="sel-half" id="sel-left">
+    <img class="sel-bg-img" id="sel-left-img" src="" alt="">
+    <div class="sel-label" id="sel-left-label">A</div>
+    <div class="sel-count" id="sel-left-count"></div>
+    <div class="sel-progress" id="sel-left-progress"></div>
+  </div>
+  <div id="sel-divider"></div>
+  <div class="sel-half" id="sel-right">
+    <img class="sel-bg-img" id="sel-right-img" src="" alt="">
+    <div class="sel-label" id="sel-right-label">B</div>
+    <div class="sel-count" id="sel-right-count"></div>
+    <div class="sel-progress" id="sel-right-progress"></div>
+  </div>
+  <div id="sel-round-label">Round 1 of 5</div>
+  <div id="sel-path"></div>
+  <div id="sel-waiting">Stand in frame to begin</div>
+</div>
+
+<div id="reward-screen">
+  <div id="reward-media-wrap">
+    <img id="reward-img" src="" alt="">
+    <video id="reward-video" loop playsinline></video>
+  </div>
+  <div id="reward-info">
+    <div id="reward-topic"></div>
+    <div id="reward-title"></div>
+    <div id="reward-text"></div>
+    <div id="reward-flag">
+      <span style="background:#F4BE00"></span>
+      <span style="background:#003F87"></span>
+      <span style="background:#CE1126"></span>
+    </div>
+  </div>
+</div>
+
+<div id="center-hint">Move to the middle to choose a path</div>
+
+<div id="ui">
+  <div id="state-label">chaos</div>
+  <div id="bottom-row">
+    <div id="people-label">0 people detected</div>
+    <div id="status-bar">
+      <div class="dot" id="dot"></div>
+      <span id="status">Connecting...</span>
+    </div>
+  </div>
+</div>
+
+<!-- Person detection runs in the browser on this screen (replaces the Pi). -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script src="p2p.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pixi.js@7.4.2/dist/pixi.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>
+// ─── Post content ────────────────────────────────────────────────────────────
+const VIDEO_BASE = 'videos/';
+const IMG_BASE   = 'images/';
+const IMG_SRCS   = [
+  IMG_BASE + 'manduro_1.png',
+  IMG_BASE + 'people_1.png',
+  IMG_BASE + 'people_2.png',
+  IMG_BASE + 'people_3.png',
+  IMG_BASE + 'people_4.png',
+  IMG_BASE + 'people_5.png',
+  IMG_BASE + 'people_6.png',
+  IMG_BASE + 'people_7.png',
+  IMG_BASE + 'people_8.png',
+  IMG_BASE + 'people_9.png',
+  IMG_BASE + 'stats_1.png',
+  IMG_BASE + 'stats_2.png',
+  IMG_BASE + 'stats_3.png',
+];
+
+// 5 videos + 25 image cards (each photo repeated 5×), shuffled together
+const POSTS = [
+  { type: 'video', src: VIDEO_BASE + 'tiktok_venezolanosenperu__7279173300738198789.mp4', color: 0x3498db, handle: '@venezolanosenperu' },
+  { type: 'video', src: VIDEO_BASE + 'tiktok_viajerossincontrol_7429364918220066053.mp4', color: 0xf39c12, handle: '@viajerossincontrol' },
+  { type: 'video', src: VIDEO_BASE + 'tiktok_fisi4_7591230547045747980.mp4',               color: 0xe74c3c, handle: '@fisi4' },
+  { type: 'video', src: VIDEO_BASE + 'tiktok_glxsyy_ady_7603473424706505992.mp4',          color: 0x9b59b6, handle: '@glxsyy_ady' },
+  { type: 'video', src: VIDEO_BASE + 'tiktok_puspa.raja04_7524526525841018125.mp4',         color: 0x1abc9c, handle: '@puspa.raja04' },
+  ...Array.from({ length: 26 }, (_, i) => ({ type: 'image', src: IMG_SRCS[i % IMG_SRCS.length] }))
+    .sort(() => Math.random() - 0.5),
+];
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+const P1_ID            = 'projector1-stage';
+const DETECT_INTERVAL  = 500;    // ms between person-detection passes
+const DETECT_MIN_CONF  = 0.30;   // coco-ssd confidence threshold for a "person"
+const CARD_W           = 380;
+const CARD_H           = 200;
+const CLUSTER_DIST     = 0.8;   // max spread between people to count as "together"
+const MIN_FOCUS_PEOPLE = 4;
+const DEBOUNCE_MS      = 1600;   // delay before allowing another state transition, to prevent jitter
+
+// ─── PixiJS app ───────────────────────────────────────────────────────────────
+const app = new PIXI.Application({
+  width:           window.innerWidth,
+  height:          window.innerHeight,
+  backgroundColor: 0x0a0a0f,
+  resizeTo:        window,
+  antialias:       true,
+  resolution:      window.devicePixelRatio || 1,
+  autoDensity:     true,
+});
+document.body.insertBefore(app.view, document.getElementById('ui'));
+
+const W = () => app.screen.width;
+const H = () => app.screen.height;
+
+// ─── Image texture loader ─────────────────────────────────────────────────────
+function loadImageTexture(src) {
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.onload  = () => resolve(PIXI.Texture.from(img));
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+// ─── Video thumbnail loader ───────────────────────────────────────────────────
+function loadThumbnail(src) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.preload = 'metadata';
+
+    const done = (texture) => { video.src = ''; resolve(texture); };
+    const fallback = setTimeout(() => done(null), 6000);
+
+    video.addEventListener('error',        () => { clearTimeout(fallback); done(null); }, { once: true });
+    video.addEventListener('loadedmetadata', () => {
+      video.currentTime = Math.min(1.0, video.duration * 0.1);
+    }, { once: true });
+
+    video.addEventListener('seeked', () => {
+      clearTimeout(fallback);
+      const canvas = document.createElement('canvas');
+      canvas.width  = CARD_W;
+      canvas.height = CARD_H;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#111118';
+      ctx.fillRect(0, 0, CARD_W, CARD_H);
+
+      // Cover-fit: fill the card without stretching
+      const vr = video.videoWidth / video.videoHeight;
+      const cr = CARD_W / CARD_H;
+      let sw, sh, sx, sy;
+      if (vr > cr) { sh = CARD_H; sw = sh * vr; sx = (CARD_W - sw) / 2; sy = 0; }
+      else          { sw = CARD_W; sh = sw / vr; sx = 0; sy = (CARD_H - sh) / 2; }
+      ctx.drawImage(video, sx, sy, sw, sh);
+
+      done(PIXI.Texture.from(canvas));
+    }, { once: true });
+
+    video.src = src;
+    video.load();
+  });
+}
+
+// ─── Build post cards ─────────────────────────────────────────────────────────
+function makeCard(post, thumbTexture) {
+  const c = new PIXI.Container();
+
+  if (post.type === 'image' && thumbTexture) {
+    // Image card: cover-fit photo with rounded border
+    const sprite = new PIXI.Sprite(thumbTexture);
+    const ratio  = Math.max(CARD_W / thumbTexture.width, CARD_H / thumbTexture.height);
+    sprite.width  = thumbTexture.width  * ratio;
+    sprite.height = thumbTexture.height * ratio;
+    sprite.x = (CARD_W - sprite.width)  / 2;
+    sprite.y = (CARD_H - sprite.height) / 2;
+
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0xffffff);
+    mask.drawRoundedRect(0, 0, CARD_W, CARD_H, 8);
+    mask.endFill();
+    sprite.mask = mask;
+
+    const border = new PIXI.Graphics();
+    border.lineStyle(1, 0x444455, 0.5);
+    border.drawRoundedRect(0, 0, CARD_W, CARD_H, 8);
+
+    c.addChild(sprite, mask, border);
+
+  } else if (thumbTexture) {
+    // Video card: thumbnail background + dark overlay + play icon
+    const sprite = new PIXI.Sprite(thumbTexture);
+    sprite.width  = CARD_W;
+    sprite.height = CARD_H;
+
+    // Rounded-rect mask so thumbnail clips to card shape
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0xffffff);
+    mask.drawRoundedRect(0, 0, CARD_W, CARD_H, 8);
+    mask.endFill();
+    sprite.mask = mask;
+
+    // Semi-transparent dark overlay so play icon is readable
+    const overlay = new PIXI.Graphics();
+    overlay.beginFill(0x000000, 0.45);
+    overlay.drawRoundedRect(0, 0, CARD_W, CARD_H, 8);
+    overlay.endFill();
+
+    // Coloured border
+    const border = new PIXI.Graphics();
+    border.lineStyle(1, post.color, 0.55);
+    border.drawRoundedRect(0, 0, CARD_W, CARD_H, 8);
+
+    // Colour accent bar
+    const bar = new PIXI.Graphics();
+    bar.beginFill(post.color, 0.85);
+    bar.drawRoundedRect(0, 0, 3, CARD_H, 2);
+    bar.endFill();
+
+    // Play icon centred
+    const play = new PIXI.Text('▶', { fontFamily: 'sans-serif', fontSize: 22, fill: 0xffffff });
+    play.alpha = 0.85;
+    play.x = Math.round(CARD_W / 2 - play.width  / 2);
+    play.y = Math.round(CARD_H / 2 - play.height / 2);
+
+    // Handle label at bottom-left
+    const handle = new PIXI.Text(post.handle, {
+      fontFamily: '"Segoe UI", sans-serif',
+      fontSize:   9,
+      fill:       0xffffff,
+    });
+    handle.alpha = 0.7;
+    handle.x = 10;
+    handle.y = CARD_H - handle.height - 7;
+
+    c.addChild(sprite, mask, overlay, border, bar, play, handle);
+  } else {
+    // Text card (unchanged)
+    const bg = new PIXI.Graphics();
+    bg.lineStyle(1, post.color, 0.4);
+    bg.beginFill(0x111118, 0.88);
+    bg.drawRoundedRect(0, 0, CARD_W, CARD_H, 8);
+    bg.endFill();
+
+    const bar = new PIXI.Graphics();
+    bar.beginFill(post.color, 0.75);
+    bar.drawRoundedRect(0, 0, 3, CARD_H, 2);
+    bar.endFill();
+
+    const label = new PIXI.Text(post.text, {
+      fontFamily:    '"Segoe UI", sans-serif',
+      fontSize:      11.5,
+      fill:          0xcccccc,
+      wordWrap:      true,
+      wordWrapWidth: CARD_W - 20,
+      lineHeight:    17,
+    });
+    label.x = 12;
+    label.y = 10;
+
+    c.addChild(bg, bar, label);
+  }
+
+  c.pivot.set(CARD_W / 2, CARD_H / 2);
+  return c;
+}
+
+// ─── Async init: load thumbnails then build cards ─────────────────────────────
+let cards = [];
+
+async function init() {
+  // Pre-load textures for all unique image sources
+  const thumbMap = {};
+  const uniqueSrcs = [...new Set(POSTS.filter(p => p.type === 'image').map(p => p.src))];
+  await Promise.all([
+    ...uniqueSrcs.map(async src => { thumbMap[src] = await loadImageTexture(src); }),
+    ...POSTS.filter(p => p.type === 'video').map(async p => { thumbMap[p.src] = await loadThumbnail(p.src); }),
+  ]);
+
+  cards = POSTS.map((post) => {
+    const c = makeCard(post, thumbMap[post.src] ?? null);
+
+    c.x = 80 + Math.random() * (W() - 160);
+    c.y = 80 + Math.random() * (H() - 160);
+
+    const angle = Math.random() * Math.PI * 2;
+    const spd   = 0.9 + Math.random() * 1.1;
+    c._vx        = Math.cos(angle) * spd;
+    c._vy        = Math.sin(angle) * spd;
+    c._blur      = 0;
+    c._baseAlpha = 0.65 + Math.random() * 0.3;
+    c.alpha      = c._baseAlpha;
+
+    const blur   = new PIXI.filters.BlurFilter(0, 4);
+    blur.padding = 24;
+    c._blurFilter = blur;
+    c.filters     = [blur];
+
+    c.rotation  = (Math.random() - 0.5) * 0.18;
+    c._rotSpeed = (Math.random() - 0.5) * 0.0003;
+
+    app.stage.addChild(c);
+    return c;
+  });
+
+  _initEffects();
+  connect();
+  initCamera();
+}
+
+// ─── Ticker: drift + blur sync ────────────────────────────────────────────────
+app.ticker.add((delta) => {
+  const w = W(), h = H();
+  for (const c of cards) {
+    // Apply blur tween target → filter
+    c._blurFilter.blur = c._blur;
+
+    if (c._pinned) continue;
+
+    c.x += c._vx * delta;
+    c.y += c._vy * delta;
+    c.rotation += c._rotSpeed * delta;
+
+    // Soft wrap-around
+    if (c.x < -(CARD_W))      c.x = w + CARD_W;
+    if (c.x > w + CARD_W)     c.x = -(CARD_W);
+    if (c.y < -(CARD_H))      c.y = h + CARD_H;
+    if (c.y > h + CARD_H)     c.y = -(CARD_H);
+  }
+});
+
+// ─── State machine ────────────────────────────────────────────────────────────
+let state        = 'CHAOS';
+let focusCycle   = 0;
+let debounceTimer = null;
+
+// Image and video posts are candidates for FOCUS zoom
+const FOCUS_POSTS = POSTS
+  .map((p, i) => ({ ...p, cardIndex: i }))
+  .filter(p => p.type === 'image' || p.type === 'video');
+
+const stateLabel  = document.getElementById('state-label');
+const peopleLabel = document.getElementById('people-label');
+
+function setLabel(s) {
+  state = s;
+  stateLabel.textContent = s.toLowerCase();
+  stateLabel.className   = s.toLowerCase();
+}
+
+const narrativeOverlay  = document.getElementById('narrative-overlay');
+const narrativeHandle   = document.getElementById('narrative-handle');
+const narrativeQuote    = document.getElementById('narrative-quote');
+const narrativeAccent   = document.getElementById('narrative-accent');
+const narrativeCounter  = document.getElementById('narrative-counter');
+
+const videoOverlay  = document.getElementById('video-overlay');
+const narrativeVideo = document.getElementById('narrative-video');
+const videoHandle   = document.getElementById('video-handle');
+
+function hideNarrativeOverlay() {
+  narrativeOverlay.classList.remove('visible');
+  videoOverlay.classList.remove('visible');
+  narrativeVideo.pause();
+  narrativeVideo.src = '';
+}
+
+function enterChaos() {
+  setLabel('CHAOS');
+  hideNarrativeOverlay();
+  _setNoise(0.35, 2.5);
+  app.view.style.display = 'block';  // Show cloud cards
+  for (const c of cards) {
+    gsap.killTweensOf(c);
+    gsap.killTweensOf(c.scale);
+    c._pinned = false;
+
+    const angle = Math.random() * Math.PI * 2;
+    const spd   = 0.9 + Math.random() * 1.1;
+    c._vx = Math.cos(angle) * spd;
+    c._vy = Math.sin(angle) * spd;
+
+    gsap.to(c,       { duration: 1.4, alpha: c._baseAlpha, ease: 'power2.out' });
+    gsap.to(c.scale, { duration: 1.4, x: 1, y: 1, ease: 'power2.out' });
+    gsap.to(c,       { duration: 1.4, _blur: 0, ease: 'power2.out' });
+  }
+}
+
+function enterFocus() {
+  setLabel('FOCUS');
+  _setNoise(0.05, 1.5);
+  const post = FOCUS_POSTS[focusCycle % FOCUS_POSTS.length];
+  focusCycle++;
+  const idx  = post.cardIndex;
+  const card = cards[idx];
+
+  // Bring the picked card to the top of the display list
+  app.stage.removeChild(card);
+  app.stage.addChild(card);
+  card._pinned = true;
+
+  // Blur and fade every other card out while the zoom happens
+  for (const c of cards) {
+    gsap.killTweensOf(c);
+    gsap.killTweensOf(c.scale);
+    if (c === card) continue;
+    c._pinned = false;
+    gsap.to(c, { duration: 0.9, alpha: 0.06, _blur: 12, ease: 'power2.out' });
+  }
+
+  // Zoom the card from wherever it is in the cloud to the screen center
+  gsap.killTweensOf(card);
+  gsap.killTweensOf(card.scale);
+
+  gsap.to(card, {
+    duration: 0.95,
+    x: W() / 2,
+    y: H() / 2,
+    alpha: 1,
+    rotation: 0,
+    _blur: 0,
+    ease: 'power3.inOut',
+  });
+
+  gsap.to(card.scale, {
+    duration: 0.95,
+    x: 3.8,
+    y: 3.8,
+    ease: 'back.out(1.3)',   // slight overshoot so it snaps into place
+    onComplete: () => {
+      if (post.type === 'image') {
+        // Image stays pinned and zoomed in the canvas — no overlay needed
+
+      } else if (post.type === 'video') {
+        const colorHex = '#' + post.color.toString(16).padStart(6, '0');
+        videoHandle.textContent  = post.handle;
+        videoHandle.style.color  = colorHex;
+        narrativeVideo.src       = post.src;
+        narrativeVideo.load();
+        narrativeVideo.play().catch(() => {
+          narrativeVideo.muted = true;
+          narrativeVideo.play();
+        });
+        videoOverlay.classList.add('visible');
+        gsap.to(card, { duration: 0.5, alpha: 0, delay: 0.25 });
+
+      } else {
+        const colorHex = '#' + post.color.toString(16).padStart(6, '0');
+        const lines = post.text.split('\n');
+        narrativeHandle.textContent      = lines[0];
+        narrativeHandle.style.color      = colorHex;
+        narrativeAccent.style.background = colorHex;
+        narrativeQuote.textContent       = lines.slice(1).join(' ');
+        narrativeCounter.textContent     =
+          `${idx + 1} of ${POSTS.length} · ${POSTS.length - 1} others silenced`;
+        narrativeOverlay.classList.add('visible');
+        gsap.to(card, { duration: 0.5, alpha: 0, delay: 0.25 });
+      }
+    },
+  });
+}
+
+function enterFragment() {
+  setLabel('FRAGMENT');
+  hideNarrativeOverlay();
+  _setNoise(0.8, 0.25);                          // surge on scatter
+  setTimeout(() => _setNoise(0.15, 2.5), 700);  // settle to quiet drift
+
+  const cx = W() / 2;
+  const cy = H() / 2;
+
+  for (const c of cards) {
+    gsap.killTweensOf(c);
+    gsap.killTweensOf(c.scale);
+    c._pinned = false;
+
+    // Burst outward from screen center
+    const angle = Math.atan2(c.y - cy, c.x - cx);
+    const burst = 9 + Math.random() * 7;
+    c._vx = Math.cos(angle) * burst;
+    c._vy = Math.sin(angle) * burst;
+
+    gsap.to(c,       { duration: 0.7, alpha: 0.2,  ease: 'power3.out' });
+    gsap.to(c,       { duration: 0.5, _blur: 14,   ease: 'power3.out' });
+    gsap.to(c.scale, { duration: 0.7, x: 0.65, y: 0.65, ease: 'power3.out' });
+  }
+
+  // After the burst, bleed velocity back to gentle drift
+  setTimeout(() => {
+    for (const c of cards) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd   = 0.9 + Math.random() * 1.1;
+      gsap.to(c, { duration: 2.5, _vx: Math.cos(angle) * spd, _vy: Math.sin(angle) * spd, ease: 'power2.out' });
+    }
+  }, 700);
+}
+
+function transitionTo(desired) {
+  if (desired === state) return;
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    if (desired === state) return;
+    if (desired === 'CHAOS')    enterChaos();
+    if (desired === 'FOCUS')    enterFocus();
+    if (desired === 'FRAGMENT') enterFragment();
+  }, DEBOUNCE_MS);
+}
+
+// ─── Glitch + pulse effects ───────────────────────────────────────────────────
+function _initEffects() {
+  _triggerGlitch();
+}
+
+function _triggerGlitch() {
+  if (state !== 'CHAOS') { setTimeout(_triggerGlitch, 600); return; }
+
+  // Coloured scan-line slices drawn directly on the stage
+  const g      = new PIXI.Graphics();
+  const slices = 3 + Math.floor(Math.random() * 6);
+  const COLS   = [0xff0044, 0x00ffff, 0xffffff, 0xffee00];
+  for (let i = 0; i < slices; i++) {
+    const y     = Math.random() * H();
+    const h     = 1 + Math.random() * 14;
+    const shift = (Math.random() - 0.5) * 90;
+    const col   = COLS[Math.floor(Math.random() * COLS.length)];
+    g.beginFill(col, 0.15 + Math.random() * 0.5);
+    g.drawRect(shift, y, W(), h);
+    g.endFill();
+  }
+  app.stage.addChild(g);
+
+  // Snap a handful of cards sideways for the same duration
+  [...cards].filter(c => !c._pinned)
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 3 + Math.floor(Math.random() * 4))
+            .forEach(c => {
+              const snap = (Math.random() - 0.5) * 44;
+              const ox   = c.x;
+              c.x += snap;
+              setTimeout(() => { c.x = ox; }, 55 + Math.random() * 90);
+            });
+
+  setTimeout(() => {
+    app.stage.removeChild(g);
+    g.destroy();
+    setTimeout(_triggerGlitch, 1500 + Math.random() * 4000);
+  }, 50 + Math.random() * 160);
+}
+
+
+// ─── Clustering math ──────────────────────────────────────────────────────────
+function maxPairDist(people) {
+  let max = 0;
+  for (let i = 0; i < people.length; i++) {
+    for (let j = i + 1; j < people.length; j++) {
+      const dx = people[i].center_normalized.x - people[j].center_normalized.x;
+      const dy = people[i].center_normalized.y - people[j].center_normalized.y;
+      const d  = Math.sqrt(dx * dx + dy * dy);
+      if (d > max) max = d;
+    }
+  }
+  return max;
+}
+
+function desiredState(people) {
+  if (people.length < MIN_FOCUS_PEOPLE) return 'CHAOS';
+  return maxPairDist(people) < CLUSTER_DIST ? 'FOCUS' : 'FRAGMENT';
+}
+
+// ─── Room (publish camera + presence; no local WebSocket) ────────────────────
+const dot    = document.getElementById('dot');
+const status = document.getElementById('status');
+
+let room = null;
+function roomSend(obj) { if (room) room.send(obj); }
+
+function connect() {
+  room = P2P.connect({
+    id:   P1_ID,
+    kind: 'projector1',
+    onOpen:   () => { dot.classList.add('on'); status.textContent = 'Connected to room'; },
+    onMessage: () => { /* snapshots are not needed on the camera stage */ },
+    onDenied: () => { dot.classList.remove('on'); status.textContent = 'Room code rejected'; },
+    onClose:  () => {
+      dot.classList.remove('on');
+      status.textContent = 'Disconnected — retrying…';
+      transitionTo('CHAOS');
+    },
+  });
+}
+
+// ─── In-browser person detection (the camera, on this screen) ────────────────
+// Replaces the Raspberry Pi YOLO feed: Projector 1 watches its own webcam and
+// publishes the SAME detection payload the Pi used to POST — to the hub room.
+// coco-ssd detects 'person' among its COCO classes; only person boxes are kept.
+let cocoModel = null, camVideo = null, camCanvas = null, camCtx = null;
+
+async function initCamera() {
+  try {
+    cocoModel = await window.cocoSsd.load({ base: 'lite_mobilenet_v2' });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'environment' },
+      audio: false,
+    });
+    camVideo = document.createElement('video');
+    camVideo.srcObject = stream; camVideo.muted = true; camVideo.playsInline = true;
+    camVideo.setAttribute('playsinline', '');
+    await camVideo.play();
+    camCanvas = document.createElement('canvas');
+    camCtx = camCanvas.getContext('2d');
+    runDetectLoop();
+    status.textContent = 'Camera live · ' + status.textContent;
+  } catch (e) {
+    status.textContent = 'Camera unavailable — ' + (e && e.name ? e.name : 'error');
+    peopleLabel.textContent = '0 people detected';
+  }
+}
+
+async function runDetectLoop() {
+  if (camVideo && camVideo.readyState >= 2) {
+    const vw = camVideo.videoWidth, vh = camVideo.videoHeight;
+    camCanvas.width = vw; camCanvas.height = vh;
+    camCtx.drawImage(camVideo, 0, 0, vw, vh);
+    let preds = [];
+    try { preds = await cocoModel.detect(camCanvas, 20, DETECT_MIN_CONF); } catch (e) { preds = []; }
+    const people = preds
+      .filter(p => p.class === 'person')
+      .map((p, i) => {
+        const [x, y, w, h] = p.bbox;
+        const cx = x + w / 2, cy = y + h / 2;
+        return {
+          id: i,
+          confidence: p.score,
+          bbox: { x1: x, y1: y, x2: x + w, y2: y + h },
+          center: { x: cx, y: cy },
+          center_normalized: { x: cx / vw, y: cy / vh },
+        };
+      });
+    const payload = {
+      timestamp: new Date().toISOString(),
+      frame_width: vw,
+      frame_height: vh,
+      person_count: people.length,
+      people,
+    };
+    onFrame(payload);                   // drive the local state machine
+    roomSend({ type: 'camera', payload });  // publish presence to the hub room
+  }
+  setTimeout(runDetectLoop, DETECT_INTERVAL);
+}
+
+// The frame handler that used to read the /ws camera feed — now fed by the
+// local webcam detector above. Body is unchanged from the original experience.
+function onFrame(d) {
+  const people = d.people ?? [];
+
+  peopleLabel.textContent = `${d.person_count ?? 0} ${d.person_count === 1 ? 'person' : 'people'} detected`;
+
+  if (selActive) {
+    updateSelection(people);
+    return;
+  }
+
+  const count = d.person_count ?? 0;
+  const centered = count >= 3 && arePeopleCentered(people);
+  const now = Date.now();
+
+  if (now < postRewardVoteHoldUntil) {
+    centerDwellStart = null;
+    transitionTo(desiredState(people));
+    return;
+  }
+
+  if (count < 3) {
+    centerDwellStart = null;       // too few people — reset
+    requireCenterExitBeforeNextVote = false;
+    if (!introVisible && introReturnTimer === null && !selActive && !rewardActive) {
+      introReturnTimer = setTimeout(() => {
+        showIntro();
+        introReturnTimer = null;
+      }, INTRO_RETURN_DELAY);
+    }
+  } else {
+    clearTimeout(introReturnTimer);
+    introReturnTimer = null;
+    if (introVisible) hideIntro();
+
+    if (requireCenterExitBeforeNextVote) {
+      centerDwellStart = null;
+      if (!centered) {
+        requireCenterExitBeforeNextVote = false;
+      }
+    } else if (!selActive && !cloudLocked) {
+      if (centered) {
+        if (centerDwellStart === null) centerDwellStart = Date.now();
+        if (Date.now() - centerDwellStart >= CENTER_DWELL_MS) {
+          centerDwellStart = null;
+          showSelection();
+        }
+      } else {
+        centerDwellStart = null;   // left the center zone — reset
+      }
+    }
+  }
+
+  transitionTo(desiredState(people));
+}
+
+// ─── Ambient noise ────────────────────────────────────────────────────────────
+const bgNoise = document.getElementById('bg-noise');
+bgNoise.volume = 0;
+
+function _setNoise(vol, duration = 2) {
+  gsap.to(bgNoise, { volume: vol, duration, ease: 'power2.inOut' });
+}
+
+// ─── Audio unlock ─────────────────────────────────────────────────────────────
+let _audioUnlocked = false;
+function unlockAudio() {
+  if (_audioUnlocked) return;
+  _audioUnlocked = true;
+  bgNoise.play().catch(() => {});
+  _setNoise(0.35, 3);   // fade the protest noise in over 3 s
+  // If a video is already playing muted (fallback), unmute it now
+  if (!narrativeVideo.paused && narrativeVideo.muted) {
+    narrativeVideo.muted = false;
+  }
+}
+['click', 'keydown', 'touchstart'].forEach(evt =>
+  document.addEventListener(evt, unlockAudio, { once: true, passive: true })
+);
+
+// ─── Intro screen ────────────────────────────────────────────────────────────
+const intro = document.getElementById('intro');
+let introVisible     = true;
+let introReturnTimer = null;
+let centerDwellStart = null;          // when people first entered the center zone
+let cloudLocked      = false;         // true for 10 s after reward, blocks re-entry
+let rewardActive     = false;         // true while reward screen is visible
+let requireCenterExitBeforeNextVote = false; // force the crowd to leave center once before the next vote
+let postRewardVoteHoldUntil = 0;      // hard delay before voting can start again
+const POST_REWARD_SELECTION_DELAY_MS = 10000;
+const INTRO_RETURN_DELAY = 4000;
+const CENTER_DWELL_MS    = 3000;      // seconds people must stay centered
+const CENTER_THRESHOLD   = 0.50;      // normalised radius around (0.5, 0.5)
+
+function arePeopleCentered(people) {
+  if (people.length < 3) return false;
+  const cx = people.reduce((s, p) => s + p.center_normalized.x, 0) / people.length;
+  const cy = people.reduce((s, p) => s + p.center_normalized.y, 0) / people.length;
+  return Math.abs(cx - 0.5) < CENTER_THRESHOLD && Math.abs(cy - 0.5) < CENTER_THRESHOLD;
+}
+
+const centerHint = document.getElementById('center-hint');
+
+function hideIntro() {
+  if (!introVisible) return;
+  introVisible = false;
+  intro.classList.add('hidden');
+  centerHint.classList.add('visible');
+}
+
+function showIntro() {
+  if (introVisible) return;
+  introVisible = true;
+  intro.classList.remove('hidden');
+  centerHint.classList.remove('visible');
+  topicPhase   = 0;
+  topicWinners = [];
+  treeNode     = null;
+  treePath     = [];
+  treeRound    = 0;
+  selActive    = false;
+  selScreen.style.display = 'none';
+  selScreen.classList.add('hidden');
+}
+
+function showSelection() {
+  centerHint.classList.remove('visible');
+  hideNarrativeOverlay();
+  bgNoise.pause();
+  bgNoise.currentTime = 0;
+  _setNoise(0, 0.3);   // fade audio out immediately when voting starts
+  topicPhase   = 0;
+  topicWinners = [];
+  treeNode     = null;
+  treePath     = [];
+  treeRound    = 0;
+  app.view.style.display = 'none';  // Hide cloud cards during voting
+  selScreen.style.display = '';
+  selScreen.classList.remove('hidden');
+  renderRound();
+  selActive = true;
+}
+
+// ─── Selection bracket ────────────────────────────────────────────────────────
+const DWELL_MS = 3000;
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let selActive        = false;
+let selTransitioning = false;
+let selCurrent       = ['Nature', 'Culture'];
+let dwellSide        = null;
+let dwellStart       = null;
+
+let topicPhase   = 0;    // 0,1,2 for the 3-round topic bracket
+let topicWinners = [];   // collects round 0 and 1 winners
+let treeNode     = null; // current node in the chosen topic tree (null = topic bracket)
+let treePath     = [];   // breadcrumb of choices made inside the tree
+let treeRound    = 0;    // round counter shown to participants
+
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const selScreen    = document.getElementById('sel-screen');
+const selLeftEl    = document.getElementById('sel-left');
+const selRightEl   = document.getElementById('sel-right');
+const selLeftLbl   = document.getElementById('sel-left-label');
+const selRightLbl  = document.getElementById('sel-right-label');
+const selLeftProg  = document.getElementById('sel-left-progress');
+const selRightProg = document.getElementById('sel-right-progress');
+const selRoundLbl  = document.getElementById('sel-round-label');
+const selPathEl    = document.getElementById('sel-path');
+const selLeftImg   = document.getElementById('sel-left-img');
+const selRightImg  = document.getElementById('sel-right-img');
+
+// ── Walker helpers ────────────────────────────────────────────────────────────
+function isInTopicBracket() { return treeNode === null; }
+
+function getCurrentOptions() {
+  if (isInTopicBracket()) {
+    if (topicPhase === 0) return ['Nature',   'Culture'];
+    if (topicPhase === 1) return ['Politics', 'History'];
+    return [topicWinners[0], topicWinners[1]];
+  }
+  return [treeNode.left, treeNode.right];
+}
+
+function renderRound() {
+  const opts = getCurrentOptions();
+  selCurrent = opts;
+  selLeftLbl.textContent  = opts[0];
+  selRightLbl.textContent = opts[1];
+
+  if (isInTopicBracket()) {
+    selRoundLbl.textContent = `Round ${topicPhase + 1} of 3`;
+    selPathEl.textContent   = '';
+    selPathEl.style.opacity = '0';
+  } else {
+    selRoundLbl.textContent = `Round ${treeRound}`;
+    selPathEl.textContent   = treePath.join(' → ');
+    selPathEl.style.opacity = treePath.length ? '1' : '0';
+  }
+
+  selLeftImg.src  = SEL_IMAGES[opts[0]] ?? '';
+  selRightImg.src = SEL_IMAGES[opts[1]] ?? '';
+
+  selLeftEl.classList.remove('active', 'chosen');
+  selRightEl.classList.remove('active', 'chosen');
+  selLeftProg.style.width  = '0%';
+  selRightProg.style.width = '0%';
+  dwellSide        = null;
+  dwellStart       = null;
+  selTransitioning = false;
+}
+
+function confirmSide(side) {
+  const winner   = side === 'left' ? selCurrent[0] : selCurrent[1];
+  const chosenEl = side === 'left' ? selLeftEl : selRightEl;
+  chosenEl.classList.add('chosen');
+
+  setTimeout(() => {
+    if (isInTopicBracket()) {
+      if (topicPhase < 2) {
+        topicWinners.push(winner);
+        topicPhase++;
+        renderRound();
+      } else {
+        // Topic chosen — enter the tree
+        treeNode  = TOPIC_TREES[winner];
+        treePath  = [winner];
+        treeRound = 1;
+        renderRound();
+      }
+    } else {
+      treePath.push(winner);
+      if (treeNode.children && treeNode.children[winner]) {
+        treeNode = treeNode.children[winner];
+        treeRound++;
+        renderRound();
+      } else {
+        finishSelection(winner);
+      }
+    }
+  }, 700);
+}
+
+const rewardScreen  = document.getElementById('reward-screen');
+const rewardImg     = document.getElementById('reward-img');
+const rewardVideo   = document.getElementById('reward-video');
+const rewardTopic   = document.getElementById('reward-topic');
+const rewardTitle   = document.getElementById('reward-title');
+const rewardText    = document.getElementById('reward-text');
+
+function finishSelection(choice) {
+  window.selectedChoice = choice;
+  localStorage.setItem('fabricated_choice', choice);
+
+  // Hide selection screen
+  selScreen.classList.add('hidden');
+  setTimeout(() => { selScreen.style.display = 'none'; }, 800);
+  selActive = false;
+
+  // Make sure sound stays off during reward and 10-second cooldown
+  bgNoise.pause();
+  bgNoise.currentTime = 0;
+
+  // Immediately set voting protection — prevents restart while reward shows and for 10s after
+  cloudLocked = true;
+  requireCenterExitBeforeNextVote = true;
+  postRewardVoteHoldUntil = Date.now() + 12000 + POST_REWARD_SELECTION_DELAY_MS;
+
+  // Show reward
+  const reward = REWARDS[choice] ?? { type: 'image', src: '', text: '' };
+  const topic  = treePath[0] ?? '';
+
+  rewardTopic.textContent = topic.toUpperCase();
+  rewardTitle.textContent = choice;
+  rewardText.textContent  = reward.text;
+
+  if (reward.type === 'video' && reward.src) {
+    rewardImg.style.display   = 'none';
+    rewardVideo.style.display = 'block';
+    rewardVideo.src = reward.src;
+    rewardVideo.play().catch(() => { rewardVideo.muted = true; rewardVideo.play(); });
+  } else {
+    rewardVideo.style.display = 'none';
+    rewardImg.style.display   = reward.src ? 'block' : 'none';
+    rewardImg.src = reward.src;
+  }
+
+  rewardActive = true;
+  rewardScreen.classList.add('visible');
+
+  // Dismiss after 12 s — restore cloud, lock path selection for 10 s
+  setTimeout(() => {
+    rewardScreen.classList.remove('visible');
+    rewardVideo.pause();
+    rewardVideo.src = '';
+    rewardActive = false;
+    centerDwellStart = null;
+
+    // Make sure the cloud is visible and in chaos
+    clearTimeout(introReturnTimer);
+    introReturnTimer = null;
+    if (introVisible) hideIntro();
+    enterChaos();
+    // DON'T fade sound back in yet — keep it silent during 10-second cooldown
+
+    // 10-second lockout before path selection can be triggered again
+    centerHint.classList.add('visible');
+    setTimeout(() => {
+      cloudLocked = false;
+      requireCenterExitBeforeNextVote = false;
+      centerDwellStart = null;
+      _setNoise(0.35, 1.5);  // Fade sound back in after cooldown ends
+    }, 10000);
+  }, 12000);
+}
+
+const selLeftCount  = document.getElementById('sel-left-count');
+const selRightCount = document.getElementById('sel-right-count');
+const selWaiting    = document.getElementById('sel-waiting');
+
+function updateSelection(people) {
+  if (!selActive || selTransitioning) return;
+
+  const leftCount  = people.filter(p => p.center_normalized.x <  0.5).length;
+  const rightCount = people.filter(p => p.center_normalized.x >= 0.5).length;
+
+  selLeftCount.textContent  = leftCount  > 0 ? `${leftCount} ${leftCount  === 1 ? 'person' : 'people'}` : '';
+  selRightCount.textContent = rightCount > 0 ? `${rightCount} ${rightCount === 1 ? 'person' : 'people'}` : '';
+
+  if (people.length < 1) {
+    selWaiting.classList.add('visible');
+    if (dwellSide !== null) {
+      dwellSide = null;
+      dwellStart = null;
+      selLeftEl.classList.remove('active');
+      selRightEl.classList.remove('active');
+      selLeftProg.style.width  = '0%';
+      selRightProg.style.width = '0%';
+    }
+    return;
+  }
+
+  selWaiting.classList.remove('visible');
+
+  if (leftCount === rightCount) return;
+
+  const side = leftCount > rightCount ? 'left' : 'right';
+  const now  = Date.now();
+
+  if (side !== dwellSide) {
+    dwellSide  = side;
+    dwellStart = now;
+    selLeftEl.classList.toggle('active',  side === 'left');
+    selRightEl.classList.toggle('active', side === 'right');
+    selLeftProg.style.width  = '0%';
+    selRightProg.style.width = '0%';
+    return;
+  }
+
+  const pct = Math.min((now - dwellStart) / DWELL_MS * 100, 100);
+  (side === 'left' ? selLeftProg : selRightProg).style.width = pct + '%';
+
+  if (pct >= 100) {
+    selTransitioning = true;
+    confirmSide(side);
+  }
+}
+
+renderRound();
+init();
+</script>
+</body>
+</html>
